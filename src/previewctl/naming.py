@@ -23,9 +23,10 @@ def slugify(value: str) -> str:
 
 def repo_name(repo: str) -> str:
     """Extract the repository name from an ``owner/name`` slug."""
-    if not repo or not repo.strip("/"):
+    name = repo.strip().strip("/").split("/")[-1].strip()
+    if not name:
         raise ValueError("repo must be a non-empty 'owner/name' slug")
-    return repo.strip("/").split("/")[-1]
+    return name
 
 
 def namespace_for_pr(repo: str, pr_number: int) -> str:
