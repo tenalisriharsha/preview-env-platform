@@ -27,17 +27,38 @@ Hourly (safety)   ──► in-cluster CronJob ──► delete expired preview 
 the current status.
 
 - Phase 1 — core `previewctl` CLI (naming, overlay rendering, PR comments, TTL cleanup) ✅
-- Phase 2 — Kustomize base + deploy/teardown GitHub Actions workflows
+- Phase 2 — sample app, Kustomize base, RBAC, deploy/teardown GitHub Actions workflows ✅
 - Phase 3 — cleanup CronJob, docs, demo, `v0.1.0`
 
 ## Layout
 
 ```
+app/              tiny stdlib HTTP server + Dockerfile — the preview workload
 src/previewctl/   stdlib-only CLI: naming, render, comment, cleanup, kubectl/GitHub I/O
-tests/            pytest suite for everything above
-k8s/              Kustomize base + overlays + RBAC + cleanup CronJob   (Phase 2–3)
-.github/          CI (tests) now; preview/teardown workflows in Phase 2
+tests/            pytest suite for the CLI and the manifests
+k8s/base/         Kustomize base (Deployment, Service, Ingress) for the sample app
+k8s/rbac.yaml     least-privilege deployer ServiceAccount/ClusterRole
+.github/          CI, plus preview/teardown workflows driven by previewctl
+docs/             local end-to-end dry-run guide (kind)
 ```
+
+## The workflows
+
+- **`.github/workflows/preview.yaml`** (PR opened/updated): builds and pushes
+  the app image tagged `pr-<N>`, renders the per-PR overlay with
+  `previewctl render`, applies it with `kubectl apply -k`, waits for the
+  rollout, then upserts the preview-URL comment with `previewctl comment`.
+- **`.github/workflows/teardown.yaml`** (PR closed): `previewctl teardown`
+  deletes the namespace — it refuses anything without the `preview-` prefix.
+
+Both expect a `KUBECONFIG` secret for cluster access; the preview domain is
+configurable via the `PREVIEW_DOMAIN` repository variable.
+
+## Try it locally
+
+See [docs/local-e2e.md](docs/local-e2e.md) for a full dry run against a local
+`kind` cluster: render an overlay, `kubectl apply -k` it, curl the app, tear
+the namespace down.
 
 ## Development
 
