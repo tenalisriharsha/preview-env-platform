@@ -1,0 +1,35 @@
+name: teardown
+
+# When a pull request is merged or closed, delete its preview namespace.
+# previewctl refuses to touch anything without the preview- prefix.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  teardown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install previewctl
+        run: pip install -e .
+
+      - name: Configure cluster access
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Delete the preview namespace
+        run: |
+          previewctl teardown \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"

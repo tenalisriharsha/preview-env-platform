@@ -1,0 +1,74 @@
+name: preview
+
+# For every pull request: build the app image, render the per-PR Kustomize
+# overlay, apply it to the cluster, and comment the preview URL on the PR.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # upsert the preview URL comment
+  packages: write # push the PR image to GHCR
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/preview-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install previewctl
+        run: pip install -e .
+
+      - name: Configure cluster access
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the PR image
+        run: |
+          docker build -t "$IMAGE:pr-${{ github.event.pull_request.number }}" app/
+          docker push "$IMAGE:pr-${{ github.event.pull_request.number }}"
+
+      - name: Render the preview overlay
+        run: |
+          previewctl render \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --image "$IMAGE" \
+            --base ./k8s/base \
+            --domain "${{ vars.PREVIEW_DOMAIN || 'preview.example.com' }}" \
+            --out "rendered/pr-${{ github.event.pull_request.number }}"
+
+      - name: Apply the preview environment
+        run: kubectl apply -k "rendered/pr-${{ github.event.pull_request.number }}"
+
+      - name: Wait for the deployment
+        run: |
+          NAMESPACE=$(previewctl name --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}")
+          kubectl -n "$NAMESPACE" rollout status deployment/app --timeout=120s
+
+      - name: Comment the preview URL on the PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          previewctl comment \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --sha "${{ github.event.pull_request.head.sha }}" \
+            --domain "${{ vars.PREVIEW_DOMAIN || 'preview.example.com' }}"
