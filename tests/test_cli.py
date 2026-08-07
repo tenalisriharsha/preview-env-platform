@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from previewctl.cli import main
@@ -41,6 +43,23 @@ class TestRenderCommand:
         text = (out / "kustomization.yaml").read_text()
         assert "newTag: abc123" in text
         assert "value: pr-3.prev.internal" in text
+
+    def test_base_is_written_relative_to_overlay(self, tmp_path, monkeypatch):
+        """--base is cwd-relative; kustomize reads it relative to the overlay."""
+        base = tmp_path / "repo" / "k8s" / "base"
+        base.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path / "repo")
+        out = tmp_path / "repo" / "rendered" / "pr-4"
+        main(
+            [
+                "render",
+                "--repo", "a/b", "--pr", "4",
+                "--image", "app", "--base", "./k8s/base", "--out", str(out),
+            ]
+        )
+        text = (out / "kustomization.yaml").read_text()
+        (match,) = re.findall(r"resources:\n  - (.+)\n", text)
+        assert (out / match).resolve() == base.resolve()
 
 
 class TestCommentCommand:

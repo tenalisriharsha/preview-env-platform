@@ -31,15 +31,19 @@ def _cmd_name(args) -> int:
 def _cmd_render(args) -> int:
     namespace = naming.namespace_for_pr(args.repo, args.pr)
     host = render_mod.preview_host(args.pr, args.domain)
+    out = args.out or f"rendered/pr-{args.pr}"
+    # The base path in the overlay is interpreted by kustomize relative to
+    # the overlay directory, so translate the user's cwd-relative --base
+    # into a path that resolves correctly from <out>.
+    base = os.path.relpath(os.path.abspath(args.base), os.path.abspath(out))
     content = render_mod.render_kustomization(
         namespace=namespace,
-        base=args.base,
+        base=base,
         image=args.image,
         tag=args.tag or f"pr-{args.pr}",
         pr=args.pr,
         host=host,
     )
-    out = args.out or f"rendered/pr-{args.pr}"
     render_mod.write_overlay(out, content)
     print(f"namespace={namespace}")
     print(f"host={host}")
