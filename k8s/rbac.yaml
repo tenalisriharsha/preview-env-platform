@@ -1,0 +1,49 @@
+# RBAC for the preview deployer used by the GitHub Actions workflows.
+#
+# Kubernetes RBAC cannot pattern-match resource names, so "only preview-*
+# namespaces" cannot be expressed in a Role directly. The boundary is
+# enforced in two layers instead:
+#   1. previewctl refuses to delete any namespace without the `preview-`
+#      prefix (see src/previewctl/kube.py), and only ever touches namespaces
+#      carrying the `preview.env/platform=true` label.
+#   2. This ClusterRole grants no access to credentials, nodes, RBAC, or
+#      other cluster-level resources — only the workload types a preview
+#      needs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-deployer
+rules:
+  # Namespace lifecycle: create on deploy, delete on teardown/cleanup.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Workload resources inside preview namespaces (kubectl apply -k).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: preview-deployer
+subjects:
+  - kind: ServiceAccount
+    name: preview-deployer
+    namespace: default
