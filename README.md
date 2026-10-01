@@ -15,6 +15,11 @@ needed for any of this — it's pure local templating):
 
 ![previewctl render, writing the per-PR Kustomize overlay](docs/screenshots/02-render.png)
 
+What actually lands on the PR — the real markdown `build_comment()` produces,
+rendered the way GitHub displays it:
+
+![The preview-environment PR comment: URL, namespace, commit, TTL note](docs/screenshots/05-pr-comment.png)
+
 <details>
 <summary>More views</summary>
 
@@ -23,6 +28,10 @@ needed for any of this — it's pure local templating):
 ![The resolved Ingress manifest, host patched to pr-42.preview.example.com](docs/screenshots/03-kustomize-build.png)
 
 ![previewctl render --help](docs/screenshots/04-render-help.png)
+
+![previewctl comment --help](docs/screenshots/06-comment-help.png)
+
+![previewctl comment failing fast with no GITHUB_TOKEN set](docs/screenshots/07-comment-no-token.png)
 
 </details>
 
