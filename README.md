@@ -7,6 +7,25 @@ down automatically. Forgotten? A cleanup CronJob sweeps it up.
 
 GitHub Actions driven · Kustomize based · stdlib-only Python CLI · fully tested.
 
+## Preview
+
+`previewctl` naming and rendering a real overlay for PR #42, then the fully
+resolved manifest `kubectl apply -k` would actually send (no live cluster
+needed for any of this — it's pure local templating):
+
+![previewctl render, writing the per-PR Kustomize overlay](docs/screenshots/02-render.png)
+
+<details>
+<summary>More views</summary>
+
+![previewctl name: deterministic per-PR namespace](docs/screenshots/01-name.png)
+
+![The resolved Ingress manifest, host patched to pr-42.preview.example.com](docs/screenshots/03-kustomize-build.png)
+
+![previewctl render --help](docs/screenshots/04-render-help.png)
+
+</details>
+
 ## How it works
 
 ```
