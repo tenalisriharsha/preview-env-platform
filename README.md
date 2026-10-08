@@ -3,9 +3,11 @@
 A mini platform-engineering tool: **every pull request gets its own temporary
 Kubernetes environment** — a namespace running the PR build of the app, with the
 preview URL commented back on the PR. Merged or closed? The environment is torn
-down automatically. Forgotten? A cleanup CronJob sweeps it up.
+down automatically. Forgotten? `previewctl cleanup` deletes environments
+older than a TTL; the in-cluster CronJob that runs it hourly is Phase 3 and
+not shipped yet.
 
-GitHub Actions driven · Kustomize based · stdlib-only Python CLI · fully tested.
+GitHub Actions driven · Kustomize based · stdlib-only Python CLI · unit tested.
 
 ## Preview
 
@@ -46,6 +48,7 @@ PR opened/updated ──► GitHub Actions ──► build image (PR tag)
 PR closed/merged  ──► GitHub Actions ──► kubectl delete namespace
 
 Hourly (safety)   ──► in-cluster CronJob ──► delete expired preview namespaces
+                      (Phase 3, not yet shipped; `previewctl cleanup` exists)
 ```
 
 ## Project Status
@@ -56,6 +59,8 @@ the current status.
 
 - Phase 1 — core `previewctl` CLI (naming, overlay rendering, PR comments, TTL cleanup) ✅
 - Phase 2 — sample app, Kustomize base, RBAC, deploy/teardown GitHub Actions workflows ✅
+  (manifests verified against a real API server; a full run with pods on a
+  live cluster has not been done yet)
 - Phase 3 — cleanup CronJob, docs, demo, `v0.1.0`
 
 ## Layout
@@ -98,4 +103,4 @@ pytest
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

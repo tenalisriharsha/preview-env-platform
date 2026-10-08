@@ -33,7 +33,9 @@ previewctl render \
 ```
 
 This prints the namespace (`preview-demo-pr-7`), the host
-(`pr-7.preview.localtest.me`), and writes `rendered/pr-7/kustomization.yaml`.
+(`pr-7.preview.localtest.me`), and writes `rendered/pr-7/kustomization.yaml`
+plus the `rendered/pr-7/namespace.yaml` it references (so `kubectl apply -k`
+creates the labelled namespace itself).
 The `--base` path is given relative to the current directory; `previewctl`
 rewrites it so it resolves correctly from the overlay directory.
 

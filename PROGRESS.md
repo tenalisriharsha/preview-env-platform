@@ -60,8 +60,10 @@ Design principles:
 - **Label-driven lifecycle**: every preview namespace carries
   `preview.env/*` labels, so teardown and the cleanup CronJob never touch
   anything else.
-- **Least privilege**: the workflows and CronJob use a Role scoped to namespaces
-  matching the `preview-*` prefix, not cluster-admin.
+- **Least privilege**: the workflows use a dedicated ClusterRole limited to
+  namespaces, deployments, services and ingresses (no secrets, RBAC or nodes),
+  not cluster-admin. RBAC cannot match namespace names by prefix, so the
+  `preview-*` boundary is enforced by `previewctl` (see `k8s/rbac.yaml`).
 
 ## Build plan
 
