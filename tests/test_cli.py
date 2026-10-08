@@ -113,13 +113,25 @@ class TestTeardownCommand:
         assert rc == 0
         assert "would delete namespace preview-b-pr-3" in capsys.readouterr().out
 
-    def test_deletes_namespace(self, monkeypatch):
+    def test_deletes_namespace(self, monkeypatch, capsys):
         deleted = []
-        monkeypatch.setattr(
-            "previewctl.cli.kube.delete_namespace", deleted.append
-        )
+
+        def delete(namespace):
+            deleted.append(namespace)
+            return True
+
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", delete)
         assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
         assert deleted == ["preview-b-pr-3"]
+        assert capsys.readouterr().out == "deleted namespace preview-b-pr-3\n"
+
+    def test_missing_namespace_succeeds(self, monkeypatch, capsys):
+        # A PR whose deploy never created the namespace must not fail teardown.
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", lambda ns: False)
+        assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
+        assert capsys.readouterr().out == (
+            "namespace preview-b-pr-3 not found, nothing to delete\n"
+        )
 
 
 class TestCleanupCommand:

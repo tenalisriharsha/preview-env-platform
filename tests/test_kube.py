@@ -47,3 +47,18 @@ class TestDeleteNamespace:
     def test_refuses_non_preview_namespace(self):
         with pytest.raises(ValueError, match="refusing"):
             kube.delete_namespace("kube-system")
+
+    def test_deletes_and_reports_true(self, tmp_path, monkeypatch):
+        fake_kubectl(
+            tmp_path,
+            monkeypatch,
+            'echo "$@" > "$(dirname "$0")/args"\n'
+            'echo \'namespace "preview-a-pr-1" deleted\'\n',
+        )
+        assert kube.delete_namespace("preview-a-pr-1") is True
+        assert "--ignore-not-found" in (tmp_path / "args").read_text()
+
+    def test_missing_namespace_is_not_an_error(self, tmp_path, monkeypatch):
+        # kubectl delete --ignore-not-found exits 0 and prints nothing.
+        fake_kubectl(tmp_path, monkeypatch, "exit 0\n")
+        assert kube.delete_namespace("preview-a-pr-1") is False

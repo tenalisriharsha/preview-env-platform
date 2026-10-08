@@ -34,11 +34,16 @@ def list_preview_environments():
     return parse_namespace_list(raw)
 
 
-def delete_namespace(namespace: str) -> None:
-    """Delete a namespace; refuses anything outside the preview prefix."""
+def delete_namespace(namespace: str) -> bool:
+    """Delete a namespace; refuses anything outside the preview prefix.
+
+    Returns False when the namespace did not exist (e.g. the deploy never
+    got as far as creating it), so teardown is idempotent.
+    """
     if not namespace.startswith("preview-"):
         raise ValueError(f"refusing to delete non-preview namespace {namespace!r}")
-    _run(["delete", "namespace", namespace, "--wait=false"])
+    out = _run(["delete", "namespace", namespace, "--wait=false", "--ignore-not-found"])
+    return bool(out.strip())
 
 
 def apply_overlay(directory: str) -> None:

@@ -71,8 +71,10 @@ def _cmd_teardown(args) -> int:
     if args.dry_run:
         print(f"would delete namespace {namespace}")
         return 0
-    kube.delete_namespace(namespace)
-    print(f"deleted namespace {namespace}")
+    if kube.delete_namespace(namespace):
+        print(f"deleted namespace {namespace}")
+    else:
+        print(f"namespace {namespace} not found, nothing to delete")
     return 0
 
 
