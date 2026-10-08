@@ -82,12 +82,32 @@ class TestKustomizeBuild:
             pr=7,
             host="pr-7.preview.example.com",
         )
-        render_mod.write_overlay(tmp_path, content)
+        render_mod.write_overlay(tmp_path, content, "preview-demo-pr-7")
         output = self._kustomize(tmp_path)
         assert "namespace: preview-demo-pr-7" in output
         assert "preview-app:pr-7" in output
         assert "pr-7.preview.example.com" in output
         assert 'preview.env/pr: "7"' in output
+
+    def test_rendered_overlay_creates_labelled_namespace(self, tmp_path):
+        # teardown/cleanup select namespaces by preview.env/platform=true, so
+        # the Namespace object itself must be in the build and carry the label.
+        content = render_mod.render_kustomization(
+            namespace="preview-demo-pr-7",
+            base=os.path.relpath(BASE_DIR, tmp_path),
+            image="preview-app",
+            tag="pr-7",
+            pr=7,
+            host="pr-7.preview.example.com",
+        )
+        render_mod.write_overlay(tmp_path, content, "preview-demo-pr-7")
+        output = self._kustomize(tmp_path)
+        (namespace_doc,) = [
+            doc for doc in output.split("---\n") if "kind: Namespace" in doc
+        ]
+        assert "name: preview-demo-pr-7" in namespace_doc
+        assert 'preview.env/platform: "true"' in namespace_doc
+        assert 'preview.env/pr: "7"' in namespace_doc
 
 
 class TestWorkflows:

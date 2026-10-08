@@ -1,6 +1,11 @@
 import pytest
 
-from previewctl.render import preview_host, render_kustomization, write_overlay
+from previewctl.render import (
+    preview_host,
+    render_kustomization,
+    render_namespace,
+    write_overlay,
+)
 
 
 def render(**overrides):
@@ -44,6 +49,21 @@ class TestRenderKustomization:
         with pytest.raises(ValueError):
             render(pr=0)
 
+    def test_lists_namespace_manifest_as_resource(self):
+        # Without it, kubectl apply -k fails with 'namespaces ... not found'.
+        assert "  - namespace.yaml\n" in render()
+
+
+class TestRenderNamespace:
+    def test_is_a_namespace_object(self):
+        out = render_namespace("preview-app-pr-12")
+        assert "kind: Namespace" in out
+        assert "name: preview-app-pr-12" in out
+
+    def test_rejects_empty_namespace(self):
+        with pytest.raises(ValueError):
+            render_namespace(" ")
+
 
 class TestPreviewHost:
     def test_builds_host(self):
@@ -63,10 +83,12 @@ class TestPreviewHost:
 
 class TestWriteOverlay:
     def test_writes_kustomization_file(self, tmp_path):
-        write_overlay(tmp_path / "pr-12", render())
+        write_overlay(tmp_path / "pr-12", render(), "preview-app-pr-12")
         written = (tmp_path / "pr-12" / "kustomization.yaml").read_text()
         assert "namespace: preview-app-pr-12" in written
+        ns = (tmp_path / "pr-12" / "namespace.yaml").read_text()
+        assert "name: preview-app-pr-12" in ns
 
     def test_creates_missing_parents(self, tmp_path):
-        write_overlay(tmp_path / "deep" / "nested" / "pr-1", render())
+        write_overlay(tmp_path / "deep" / "nested" / "pr-1", render(), "preview-app-pr-1")
         assert (tmp_path / "deep" / "nested" / "pr-1" / "kustomization.yaml").exists()

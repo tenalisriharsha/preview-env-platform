@@ -44,7 +44,7 @@ def _cmd_render(args) -> int:
         pr=args.pr,
         host=host,
     )
-    render_mod.write_overlay(out, content)
+    render_mod.write_overlay(out, content, namespace)
     print(f"namespace={namespace}")
     print(f"host={host}")
     print(f"overlay={out}/kustomization.yaml")
