@@ -1,8 +1,8 @@
 """Thin kubectl wrapper — the only module that talks to a cluster.
 
 Everything here is deliberately an I/O shell over the pure logic in
-:mod:`previewctl.cleanup` and :mod:`previewctl.naming`, so it stays out of
-the unit-test path (it is exercised by the local kind e2e in Phase 2).
+:mod:`previewctl.cleanup` and :mod:`previewctl.naming`; its tests run it
+against a fake ``kubectl`` on PATH (``tests/test_kube.py``).
 """
 
 import subprocess
@@ -44,8 +44,3 @@ def delete_namespace(namespace: str) -> bool:
         raise ValueError(f"refusing to delete non-preview namespace {namespace!r}")
     out = _run(["delete", "namespace", namespace, "--wait=false", "--ignore-not-found"])
     return bool(out.strip())
-
-
-def apply_overlay(directory: str) -> None:
-    """``kubectl apply -k`` a rendered overlay directory."""
-    _run(["apply", "-k", directory])
