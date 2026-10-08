@@ -164,3 +164,44 @@ class TestCleanupCommand:
         monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: [])
         assert main(["cleanup", "--ttl", "1h"]) == 0
         assert "nothing to clean up" in capsys.readouterr().out
+
+
+class TestErrorsExitCleanly:
+    """Bad input and unreachable services print one line, not a traceback."""
+
+    def test_invalid_ttl(self, capsys):
+        assert main(["cleanup", "--ttl", "1w"]) == 1
+        err = capsys.readouterr().err
+        assert err.startswith("error: invalid TTL '1w'")
+        assert "Traceback" not in err
+
+    def test_invalid_pr_number(self, capsys):
+        assert main(["name", "--repo", "a/b", "--pr", "0"]) == 1
+        assert capsys.readouterr().err == (
+            "error: pr_number must be a positive integer\n"
+        )
+
+    def test_kubectl_failure(self, monkeypatch, capsys):
+        from previewctl.kube import KubectlError
+
+        def boom(namespace):
+            raise KubectlError("Unable to connect to the server")
+
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", boom)
+        assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 1
+        assert capsys.readouterr().err == "error: Unable to connect to the server\n"
+
+    def test_github_failure(self, monkeypatch, capsys):
+        from previewctl.comment import GitHubError
+
+        class FailingClient:
+            def __init__(self, token, repo):
+                pass
+
+            def upsert_comment(self, pr, body):
+                raise GitHubError("GitHub API GET ... failed: HTTP 401 Bad credentials")
+
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setattr("previewctl.cli.comment_mod.GitHubClient", FailingClient)
+        assert main(["comment", "--repo", "a/b", "--pr", "1", "--sha", "abc"]) == 1
+        assert "HTTP 401 Bad credentials" in capsys.readouterr().err

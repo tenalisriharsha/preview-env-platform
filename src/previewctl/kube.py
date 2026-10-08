@@ -15,9 +15,12 @@ class KubectlError(RuntimeError):
 
 
 def _run(args: list[str]) -> bytes:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, check=False
-    )
+    try:
+        proc = subprocess.run(
+            ["kubectl", *args], capture_output=True, check=False
+        )
+    except FileNotFoundError:
+        raise KubectlError("kubectl not found on PATH") from None
     if proc.returncode != 0:
         raise KubectlError(proc.stderr.decode().strip() or "kubectl failed")
     return proc.stdout

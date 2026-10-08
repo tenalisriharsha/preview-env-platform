@@ -1,6 +1,10 @@
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 import pytest
 
-from previewctl.comment import MARKER, GitHubClient, build_comment
+from previewctl.comment import MARKER, GitHubClient, GitHubError, build_comment
 
 
 class TestBuildComment:
@@ -74,3 +78,52 @@ class TestClientValidation:
     def test_requires_token(self):
         with pytest.raises(ValueError):
             GitHubClient("", "a/b")
+
+
+@pytest.fixture
+def github_stub():
+    """A local HTTP server answering every request with a canned error."""
+
+    class Handler(BaseHTTPRequestHandler):
+        status = 404
+        body = json.dumps({"message": "Not Found"}).encode()
+
+        def do_GET(self):  # noqa: N802 - stdlib handler API
+            self.send_response(self.status)
+            self.send_header("Content-Length", str(len(self.body)))
+            self.end_headers()
+            self.wfile.write(self.body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield Handler, f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+class TestRequestErrors:
+    def test_http_error_becomes_github_error_with_message(self, github_stub):
+        _, url = github_stub
+        client = GitHubClient("t", "a/b", base_url=url)
+        with pytest.raises(GitHubError) as excinfo:
+            client.list_comments(1)
+        assert str(excinfo.value) == (
+            "GitHub API GET /repos/a/b/issues/1/comments failed: HTTP 404 Not Found"
+        )
+
+    def test_non_json_error_body_is_kept(self, github_stub):
+        handler, url = github_stub
+        handler.status, handler.body = 502, b"bad gateway"
+        client = GitHubClient("t", "a/b", base_url=url)
+        with pytest.raises(GitHubError, match="HTTP 502 bad gateway"):
+            client.list_comments(1)
+
+    def test_unreachable_host_becomes_github_error(self):
+        # Port 9 (discard) on localhost: nothing listens there in CI.
+        client = GitHubClient("t", "a/b", base_url="http://127.0.0.1:9")
+        with pytest.raises(GitHubError, match="cannot reach http://127.0.0.1:9"):
+            client.list_comments(1)
