@@ -49,6 +49,21 @@ class TestRenderKustomization:
         with pytest.raises(ValueError):
             render(pr=0)
 
+    def test_no_new_name_by_default(self):
+        assert "newName" not in render()
+
+    def test_new_name_replaces_base_image(self):
+        out = render(image="preview-app", new_name="ghcr.io/o/r/preview-app")
+        assert (
+            "  - name: preview-app\n"
+            "    newName: ghcr.io/o/r/preview-app\n"
+            "    newTag: pr-12\n"
+        ) in out
+
+    def test_rejects_blank_new_name(self):
+        with pytest.raises(ValueError, match="new_name"):
+            render(new_name=" ")
+
     def test_lists_namespace_manifest_as_resource(self):
         # Without it, kubectl apply -k fails with 'namespaces ... not found'.
         assert "  - namespace.yaml\n" in render()

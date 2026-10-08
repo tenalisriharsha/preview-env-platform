@@ -43,6 +43,7 @@ def _cmd_render(args) -> int:
         tag=args.tag or f"pr-{args.pr}",
         pr=args.pr,
         host=host,
+        new_name=args.new_name,
     )
     render_mod.write_overlay(out, content, namespace)
     print(f"namespace={namespace}")
@@ -109,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("render", help="write the per-PR Kustomize overlay")
     add_pr_target(p)
     p.add_argument("--image", required=True, help="image name as used in the base")
+    p.add_argument(
+        "--new-name", help="replace the base image name, e.g. with the registry path"
+    )
     p.add_argument("--tag", help="image tag (default: pr-<N>)")
     p.add_argument("--base", default="../../base", help="path to the Kustomize base")
     p.add_argument("--domain", default=DEFAULT_DOMAIN, help="preview domain")

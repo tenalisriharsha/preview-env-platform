@@ -29,7 +29,7 @@ resources:
   - namespace.yaml
 
 images:
-  - name: {image}
+  - name: {image}{new_name}
     newTag: {tag}
 
 labels:
@@ -56,8 +56,14 @@ def render_kustomization(
     tag: str,
     pr: int,
     host: str,
+    new_name: str | None = None,
 ) -> str:
-    """Return the contents of the overlay ``kustomization.yaml``."""
+    """Return the contents of the overlay ``kustomization.yaml``.
+
+    ``image`` is the image name as written in the base; ``new_name``
+    optionally replaces it (e.g. with the registry path the PR image was
+    pushed to), since kustomize only retags images whose name matches.
+    """
     for field, value in {
         "namespace": namespace,
         "image": image,
@@ -68,8 +74,16 @@ def render_kustomization(
             raise ValueError(f"{field} must be non-empty")
     if pr < 1:
         raise ValueError("pr must be a positive integer")
+    if new_name is not None and not new_name.strip():
+        raise ValueError("new_name must be non-empty when given")
     return KUSTOMIZATION_TEMPLATE.format(
-        namespace=namespace, base=base, image=image, tag=tag, pr=pr, host=host
+        namespace=namespace,
+        base=base,
+        image=image,
+        new_name=f"\n    newName: {new_name}" if new_name else "",
+        tag=tag,
+        pr=pr,
+        host=host,
     )
 
 

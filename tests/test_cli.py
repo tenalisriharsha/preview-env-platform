@@ -44,6 +44,19 @@ class TestRenderCommand:
         assert "newTag: abc123" in text
         assert "value: pr-3.prev.internal" in text
 
+    def test_new_name_flag(self, tmp_path):
+        out = tmp_path / "overlay"
+        main(
+            [
+                "render",
+                "--repo", "a/b", "--pr", "3",
+                "--image", "preview-app", "--new-name", "ghcr.io/a/b/preview-app",
+                "--out", str(out),
+            ]
+        )
+        text = (out / "kustomization.yaml").read_text()
+        assert "newName: ghcr.io/a/b/preview-app" in text
+
     def test_base_is_written_relative_to_overlay(self, tmp_path, monkeypatch):
         """--base is cwd-relative; kustomize reads it relative to the overlay."""
         base = tmp_path / "repo" / "k8s" / "base"
