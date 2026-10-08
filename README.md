@@ -11,14 +11,13 @@ GitHub Actions driven · Kustomize based · stdlib-only Python CLI · unit teste
 
 ## Preview
 
-`previewctl` naming and rendering a real overlay for PR #42, then the fully
-resolved manifest `kubectl apply -k` would actually send (no live cluster
-needed for any of this — it's pure local templating):
+`previewctl` rendering a real overlay for PR #42 the way the preview workflow
+does (no live cluster needed — it's pure local templating):
 
 ![previewctl render, writing the per-PR Kustomize overlay](docs/screenshots/02-render.png)
 
-What actually lands on the PR — the real markdown `build_comment()` produces,
-rendered the way GitHub displays it:
+What lands on the PR: the real markdown `build_comment()` produces, rendered
+with cmark-gfm (GitHub's Markdown library):
 
 ![The preview-environment PR comment: URL, namespace, commit, TTL note](docs/screenshots/05-pr-comment.png)
 
@@ -34,6 +33,10 @@ rendered the way GitHub displays it:
 ![previewctl comment --help](docs/screenshots/06-comment-help.png)
 
 ![previewctl comment failing fast with no GITHUB_TOKEN set](docs/screenshots/07-comment-no-token.png)
+
+Every image is regenerated from real command output by
+[`docs/screenshots/generate.py`](docs/screenshots/generate.py)
+(`pip install -e .[screenshots]`, needs `kubectl` on PATH).
 
 </details>
 
