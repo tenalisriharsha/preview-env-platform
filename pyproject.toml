@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+screenshots = ["playwright==1.56.0", "cmarkgfm==2025.10.22"]
 
 [project.scripts]
 previewctl = "previewctl.cli:main"

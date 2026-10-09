@@ -82,12 +82,50 @@ class TestKustomizeBuild:
             pr=7,
             host="pr-7.preview.example.com",
         )
-        render_mod.write_overlay(tmp_path, content)
+        render_mod.write_overlay(tmp_path, content, "preview-demo-pr-7")
         output = self._kustomize(tmp_path)
         assert "namespace: preview-demo-pr-7" in output
         assert "preview-app:pr-7" in output
         assert "pr-7.preview.example.com" in output
         assert 'preview.env/pr: "7"' in output
+
+    def test_workflow_image_replaces_the_base_image(self, tmp_path):
+        # The workflow pushes ghcr.io/<repo>/preview-app:pr-<N>; the built
+        # Deployment must reference exactly that, not the base preview-app.
+        content = render_mod.render_kustomization(
+            namespace="preview-demo-pr-7",
+            base=os.path.relpath(BASE_DIR, tmp_path),
+            image="preview-app",
+            new_name="ghcr.io/octocat/demo/preview-app",
+            tag="pr-7",
+            pr=7,
+            host="pr-7.preview.example.com",
+        )
+        render_mod.write_overlay(tmp_path, content, "preview-demo-pr-7")
+        output = self._kustomize(tmp_path)
+        assert re.findall(r"image: (\S+)", output) == [
+            "ghcr.io/octocat/demo/preview-app:pr-7"
+        ]
+
+    def test_rendered_overlay_creates_labelled_namespace(self, tmp_path):
+        # teardown/cleanup select namespaces by preview.env/platform=true, so
+        # the Namespace object itself must be in the build and carry the label.
+        content = render_mod.render_kustomization(
+            namespace="preview-demo-pr-7",
+            base=os.path.relpath(BASE_DIR, tmp_path),
+            image="preview-app",
+            tag="pr-7",
+            pr=7,
+            host="pr-7.preview.example.com",
+        )
+        render_mod.write_overlay(tmp_path, content, "preview-demo-pr-7")
+        output = self._kustomize(tmp_path)
+        (namespace_doc,) = [
+            doc for doc in output.split("---\n") if "kind: Namespace" in doc
+        ]
+        assert "name: preview-demo-pr-7" in namespace_doc
+        assert 'preview.env/platform: "true"' in namespace_doc
+        assert 'preview.env/pr: "7"' in namespace_doc
 
 
 class TestWorkflows:
@@ -100,6 +138,17 @@ class TestWorkflows:
             assert step in workflow, f"preview.yaml is missing {step!r}"
         assert "types: [opened, synchronize, reopened]" in workflow
         assert "pull-requests: write" in workflow
+
+    def test_preview_workflow_retags_the_base_image_name(self):
+        # kustomize only rewrites images whose name matches the base, so
+        # --image must be the base name and the registry path goes in
+        # --new-name; otherwise the cluster pulls preview-app:latest.
+        workflow = _read(self.WORKFLOWS / "preview.yaml")
+        base_image = re.search(
+            r"image:\s*([^:\s]+):", _read(BASE_DIR / "deployment.yaml")
+        ).group(1)
+        assert f"--image {base_image} " in workflow
+        assert '--new-name "$IMAGE"' in workflow
 
     def test_teardown_workflow(self):
         workflow = _read(self.WORKFLOWS / "teardown.yaml")

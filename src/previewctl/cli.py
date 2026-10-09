@@ -43,8 +43,9 @@ def _cmd_render(args) -> int:
         tag=args.tag or f"pr-{args.pr}",
         pr=args.pr,
         host=host,
+        new_name=args.new_name,
     )
-    render_mod.write_overlay(out, content)
+    render_mod.write_overlay(out, content, namespace)
     print(f"namespace={namespace}")
     print(f"host={host}")
     print(f"overlay={out}/kustomization.yaml")
@@ -70,8 +71,10 @@ def _cmd_teardown(args) -> int:
     if args.dry_run:
         print(f"would delete namespace {namespace}")
         return 0
-    kube.delete_namespace(namespace)
-    print(f"deleted namespace {namespace}")
+    if kube.delete_namespace(namespace):
+        print(f"deleted namespace {namespace}")
+    else:
+        print(f"namespace {namespace} not found, nothing to delete")
     return 0
 
 
@@ -109,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("render", help="write the per-PR Kustomize overlay")
     add_pr_target(p)
     p.add_argument("--image", required=True, help="image name as used in the base")
+    p.add_argument(
+        "--new-name", help="replace the base image name, e.g. with the registry path"
+    )
     p.add_argument("--tag", help="image tag (default: pr-<N>)")
     p.add_argument("--base", default="../../base", help="path to the Kustomize base")
     p.add_argument("--domain", default=DEFAULT_DOMAIN, help="preview domain")
@@ -136,7 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, kube.KubectlError, comment_mod.GitHubError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

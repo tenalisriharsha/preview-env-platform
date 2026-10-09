@@ -50,7 +50,8 @@ jobs:
           previewctl render \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
-            --image "$IMAGE" \
+            --image preview-app \
+            --new-name "$IMAGE" \
             --base ./k8s/base \
             --domain "${{ vars.PREVIEW_DOMAIN || 'preview.example.com' }}" \
             --out "rendered/pr-${{ github.event.pull_request.number }}"

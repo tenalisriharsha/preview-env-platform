@@ -6,6 +6,7 @@ a new one only when none exists.
 """
 
 import json
+import urllib.error
 import urllib.request
 
 MARKER = "<!-- preview-env -->"
@@ -36,6 +37,10 @@ def build_comment(*, namespace: str, url: str, sha: str) -> str:
     )
 
 
+class GitHubError(RuntimeError):
+    """A GitHub API call failed or GitHub could not be reached."""
+
+
 class GitHubClient:
     """Minimal GitHub REST client (stdlib only).
 
@@ -56,8 +61,20 @@ class GitHubClient:
         req.add_header("Authorization", f"Bearer {self._token}")
         req.add_header("Accept", "application/vnd.github+json")
         req.add_header("Content-Type", "application/json")
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
+        try:
+            with urllib.request.urlopen(req) as resp:
+                raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            try:
+                detail = json.loads(detail).get("message", detail)
+            except (ValueError, AttributeError):
+                pass
+            raise GitHubError(
+                f"GitHub API {method} {path} failed: HTTP {exc.code} {detail}".rstrip()
+            ) from None
+        except urllib.error.URLError as exc:
+            raise GitHubError(f"cannot reach {self.base_url}: {exc.reason}") from None
         return json.loads(raw) if raw else None
 
     def list_comments(self, pr_number: int) -> list[dict]:

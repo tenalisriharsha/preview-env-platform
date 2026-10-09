@@ -1,8 +1,8 @@
 """Thin kubectl wrapper — the only module that talks to a cluster.
 
 Everything here is deliberately an I/O shell over the pure logic in
-:mod:`previewctl.cleanup` and :mod:`previewctl.naming`, so it stays out of
-the unit-test path (it is exercised by the local kind e2e in Phase 2).
+:mod:`previewctl.cleanup` and :mod:`previewctl.naming`; its tests run it
+against a fake ``kubectl`` on PATH (``tests/test_kube.py``).
 """
 
 import subprocess
@@ -15,9 +15,12 @@ class KubectlError(RuntimeError):
 
 
 def _run(args: list[str]) -> bytes:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, check=False
-    )
+    try:
+        proc = subprocess.run(
+            ["kubectl", *args], capture_output=True, check=False
+        )
+    except FileNotFoundError:
+        raise KubectlError("kubectl not found on PATH") from None
     if proc.returncode != 0:
         raise KubectlError(proc.stderr.decode().strip() or "kubectl failed")
     return proc.stdout
@@ -31,13 +34,13 @@ def list_preview_environments():
     return parse_namespace_list(raw)
 
 
-def delete_namespace(namespace: str) -> None:
-    """Delete a namespace; refuses anything outside the preview prefix."""
+def delete_namespace(namespace: str) -> bool:
+    """Delete a namespace; refuses anything outside the preview prefix.
+
+    Returns False when the namespace did not exist (e.g. the deploy never
+    got as far as creating it), so teardown is idempotent.
+    """
     if not namespace.startswith("preview-"):
         raise ValueError(f"refusing to delete non-preview namespace {namespace!r}")
-    _run(["delete", "namespace", namespace, "--wait=false"])
-
-
-def apply_overlay(directory: str) -> None:
-    """``kubectl apply -k`` a rendered overlay directory."""
-    _run(["apply", "-k", directory])
+    out = _run(["delete", "namespace", namespace, "--wait=false", "--ignore-not-found"])
+    return bool(out.strip())

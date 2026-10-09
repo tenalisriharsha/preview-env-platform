@@ -44,6 +44,19 @@ class TestRenderCommand:
         assert "newTag: abc123" in text
         assert "value: pr-3.prev.internal" in text
 
+    def test_new_name_flag(self, tmp_path):
+        out = tmp_path / "overlay"
+        main(
+            [
+                "render",
+                "--repo", "a/b", "--pr", "3",
+                "--image", "preview-app", "--new-name", "ghcr.io/a/b/preview-app",
+                "--out", str(out),
+            ]
+        )
+        text = (out / "kustomization.yaml").read_text()
+        assert "newName: ghcr.io/a/b/preview-app" in text
+
     def test_base_is_written_relative_to_overlay(self, tmp_path, monkeypatch):
         """--base is cwd-relative; kustomize reads it relative to the overlay."""
         base = tmp_path / "repo" / "k8s" / "base"
@@ -100,13 +113,25 @@ class TestTeardownCommand:
         assert rc == 0
         assert "would delete namespace preview-b-pr-3" in capsys.readouterr().out
 
-    def test_deletes_namespace(self, monkeypatch):
+    def test_deletes_namespace(self, monkeypatch, capsys):
         deleted = []
-        monkeypatch.setattr(
-            "previewctl.cli.kube.delete_namespace", deleted.append
-        )
+
+        def delete(namespace):
+            deleted.append(namespace)
+            return True
+
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", delete)
         assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
         assert deleted == ["preview-b-pr-3"]
+        assert capsys.readouterr().out == "deleted namespace preview-b-pr-3\n"
+
+    def test_missing_namespace_succeeds(self, monkeypatch, capsys):
+        # A PR whose deploy never created the namespace must not fail teardown.
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", lambda ns: False)
+        assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
+        assert capsys.readouterr().out == (
+            "namespace preview-b-pr-3 not found, nothing to delete\n"
+        )
 
 
 class TestCleanupCommand:
@@ -151,3 +176,44 @@ class TestCleanupCommand:
         monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: [])
         assert main(["cleanup", "--ttl", "1h"]) == 0
         assert "nothing to clean up" in capsys.readouterr().out
+
+
+class TestErrorsExitCleanly:
+    """Bad input and unreachable services print one line, not a traceback."""
+
+    def test_invalid_ttl(self, capsys):
+        assert main(["cleanup", "--ttl", "1w"]) == 1
+        err = capsys.readouterr().err
+        assert err.startswith("error: invalid TTL '1w'")
+        assert "Traceback" not in err
+
+    def test_invalid_pr_number(self, capsys):
+        assert main(["name", "--repo", "a/b", "--pr", "0"]) == 1
+        assert capsys.readouterr().err == (
+            "error: pr_number must be a positive integer\n"
+        )
+
+    def test_kubectl_failure(self, monkeypatch, capsys):
+        from previewctl.kube import KubectlError
+
+        def boom(namespace):
+            raise KubectlError("Unable to connect to the server")
+
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", boom)
+        assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 1
+        assert capsys.readouterr().err == "error: Unable to connect to the server\n"
+
+    def test_github_failure(self, monkeypatch, capsys):
+        from previewctl.comment import GitHubError
+
+        class FailingClient:
+            def __init__(self, token, repo):
+                pass
+
+            def upsert_comment(self, pr, body):
+                raise GitHubError("GitHub API GET ... failed: HTTP 401 Bad credentials")
+
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setattr("previewctl.cli.comment_mod.GitHubClient", FailingClient)
+        assert main(["comment", "--repo", "a/b", "--pr", "1", "--sha", "abc"]) == 1
+        assert "HTTP 401 Bad credentials" in capsys.readouterr().err

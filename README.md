@@ -3,20 +3,21 @@
 A mini platform-engineering tool: **every pull request gets its own temporary
 Kubernetes environment** — a namespace running the PR build of the app, with the
 preview URL commented back on the PR. Merged or closed? The environment is torn
-down automatically. Forgotten? A cleanup CronJob sweeps it up.
+down automatically. Forgotten? `previewctl cleanup` deletes environments
+older than a TTL; the in-cluster CronJob that runs it hourly is Phase 3 and
+not shipped yet.
 
-GitHub Actions driven · Kustomize based · stdlib-only Python CLI · fully tested.
+GitHub Actions driven · Kustomize based · stdlib-only Python CLI · unit tested.
 
 ## Preview
 
-`previewctl` naming and rendering a real overlay for PR #42, then the fully
-resolved manifest `kubectl apply -k` would actually send (no live cluster
-needed for any of this — it's pure local templating):
+`previewctl` rendering a real overlay for PR #42 the way the preview workflow
+does (no live cluster needed — it's pure local templating):
 
 ![previewctl render, writing the per-PR Kustomize overlay](docs/screenshots/02-render.png)
 
-What actually lands on the PR — the real markdown `build_comment()` produces,
-rendered the way GitHub displays it:
+What lands on the PR: the real markdown `build_comment()` produces, rendered
+with cmark-gfm (GitHub's Markdown library):
 
 ![The preview-environment PR comment: URL, namespace, commit, TTL note](docs/screenshots/05-pr-comment.png)
 
@@ -33,6 +34,10 @@ rendered the way GitHub displays it:
 
 ![previewctl comment failing fast with no GITHUB_TOKEN set](docs/screenshots/07-comment-no-token.png)
 
+Every image is regenerated from real command output by
+[`docs/screenshots/generate.py`](docs/screenshots/generate.py)
+(`pip install -e .[screenshots]`, needs `kubectl` on PATH).
+
 </details>
 
 ## How it works
@@ -46,6 +51,7 @@ PR opened/updated ──► GitHub Actions ──► build image (PR tag)
 PR closed/merged  ──► GitHub Actions ──► kubectl delete namespace
 
 Hourly (safety)   ──► in-cluster CronJob ──► delete expired preview namespaces
+                      (Phase 3, not yet shipped; `previewctl cleanup` exists)
 ```
 
 ## Project Status
@@ -56,6 +62,8 @@ the current status.
 
 - Phase 1 — core `previewctl` CLI (naming, overlay rendering, PR comments, TTL cleanup) ✅
 - Phase 2 — sample app, Kustomize base, RBAC, deploy/teardown GitHub Actions workflows ✅
+  (manifests verified against a real API server; a full run with pods on a
+  live cluster has not been done yet)
 - Phase 3 — cleanup CronJob, docs, demo, `v0.1.0`
 
 ## Layout
@@ -98,4 +106,4 @@ pytest
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
