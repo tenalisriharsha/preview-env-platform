@@ -236,6 +236,19 @@ class TestImage:
         ci = (REPO_ROOT / ".github" / "workflows" / "ci.yaml").read_text()
         assert "docker build -f Dockerfile.previewctl" in ci
 
+    def test_release_workflow_pushes_the_referenced_image(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "release-image.yaml").read_text()
+        assert 'tags: ["v*"]' in workflow
+        assert "-f Dockerfile.previewctl" in workflow
+        # ghcr.io/${{ github.repository }}/previewctl:$VERSION must equal the
+        # kustomization image for this repo once the tag v<version> is pushed.
+        assert '"ghcr.io/${{ github.repository }}/previewctl:$VERSION"' in workflow
+        assert PUBLISHED_IMAGE == (
+            "ghcr.io/tenalisriharsha/preview-env-platform/previewctl:"
+            + re.search(r'^version = "(.+)"$',
+                        (REPO_ROOT / "pyproject.toml").read_text(), re.M).group(1)
+        )
+
 
 @pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl not installed")
 class TestKustomizeBuild:
