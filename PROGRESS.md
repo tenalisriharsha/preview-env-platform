@@ -1,6 +1,6 @@
 # Progress — preview-env-platform
 
-STATUS: IN_PROGRESS
+STATUS: PHASE_3_COMPLETE (v0.1.0 tag pending)
 
 ## Vision
 
@@ -63,7 +63,9 @@ Design principles:
 - **Least privilege**: the workflows use a dedicated ClusterRole limited to
   namespaces, deployments, services and ingresses (no secrets, RBAC or nodes),
   not cluster-admin. RBAC cannot match namespace names by prefix, so the
-  `preview-*` boundary is enforced by `previewctl` (see `k8s/rbac.yaml`).
+  `preview-*` boundary is enforced by `previewctl` (see `k8s/rbac.yaml`);
+  the cleanup CronJob's identity is additionally fenced by a
+  ValidatingAdmissionPolicy (`k8s/cleanup/admission-policy.yaml`).
 
 ## Build plan
 
@@ -88,34 +90,44 @@ Design principles:
 - [x] Local dry run documented in `docs/local-e2e.md` (kind-based); clusterless
       validation automated via `kubectl kustomize` in `tests/test_manifests.py`
 
-### Phase 3 — Cleanup CronJob + polish (Night 3)
+### Phase 3 — Cleanup CronJob + polish ✅ (Night 3; tag pending)
 
-- [ ] `k8s/cleanup` CronJob manifest running `previewctl cleanup --ttl 24h`
-- [ ] `docs/` — architecture deep-dive, setup guide, screenshots/demo
-- [ ] README final polish (badges, quickstart, demo GIF)
-- [ ] Tag `v0.1.0`
+- [x] `k8s/cleanup` CronJob running `previewctl cleanup --ttl 24h` hourly,
+      with its own ServiceAccount/ClusterRole/ClusterRoleBinding
+      (get/list/delete on namespaces only), a ValidatingAdmissionPolicy
+      limiting deletes to labelled `preview-*` namespaces, and
+      `Dockerfile.previewctl` for its image (built in CI, published on
+      `v*` tags by `release-image.yaml`)
+- [x] `previewctl cleanup` keeps going when one namespace fails to delete
+- [x] `docs/architecture.md`, `docs/setup.md`, cleanup section in
+      `docs/local-e2e.md`, cleanup screenshots (11-16 from a live cluster)
+- [x] README: CI badge, quickstart, honest verified / not-verified list
+- [ ] Demo GIF: not made; the screenshot set covers the flow instead
+- [ ] Tag `v0.1.0`: CHANGELOG entry prepared; the tag itself is left to
+      the maintainer
 
-## Resume point for Night 3
+## Verification status
 
-Phase 2 is complete and all tests pass (`pytest`: 76 tests green). What landed:
+Verified on a live single-node k3s v1.34 cluster (by hand, not in CI):
+preview deploy with `kubectl apply -k`, pod Ready, `curl` through the
+Service and via `kubectl port-forward`; deploy + teardown using only the
+`preview-deployer` kubeconfig; `previewctl cleanup` deleting only the
+expired of two previews; the CronJob running in-cluster on demand and on
+schedule under Pod Security `restricted` and deleting an expired
+namespace; RBAC `can-i` checks and admission-policy denials for the
+cleanup ServiceAccount; every shell command in `docs/setup.md` and
+`docs/local-e2e.md` (kind commands excepted).
 
-- `app/` — stdlib HTTP server + Dockerfile (verified locally with curl).
-- `k8s/base/` + `k8s/rbac.yaml`; `.github/workflows/preview.yaml` and
-  `teardown.yaml` wired to `previewctl render/comment/teardown`.
-- Bug fix: `previewctl render` now rewrites `--base` relative to the overlay
-  directory (kustomize resolves it from there, not from the cwd).
-- `docs/local-e2e.md` — kind dry-run walkthrough. Note: no docker daemon or
-  kind on this machine, so the image build and live apply were NOT executed;
-  clusterless validation (`kubectl kustomize` on base + rendered overlay)
-  passes and is covered by tests.
+Not verified: `kind` itself (could not run nested containers in the
+build environment), the GitHub Actions preview/teardown workflows against
+a real cluster, Ingress routing to `pr-<N>.<domain>`, and the
+`release-image.yaml` publish (needs a tag push).
 
-Next:
+## Next
 
-1. Add `k8s/cleanup/cronjob.yaml` (+ its own SA/ClusterRole limited to
-   namespaces get/list/delete) running `previewctl cleanup --ttl 24h` hourly;
-   it needs a container image with previewctl — build one from this repo or
-   pip-install from git in an init step. Decide and document.
-2. Write `docs/architecture.md` and `docs/setup.md` (secrets: KUBECONFIG,
-   PREVIEW_DOMAIN var; installing RBAC; ingress controller expectations).
-3. Final README polish (badges, quickstart). Demo GIF only if tooling allows.
-4. Write DAILY_REPORT.md, tag `v0.1.0`, set STATUS: COMPLETE.
+1. Tag `v0.1.0` (see CHANGELOG.md) and confirm `release-image.yaml`
+   publishes `ghcr.io/tenalisriharsha/preview-env-platform/previewctl:0.1.0`;
+   make the package public or add a pull secret.
+2. Run the preview/teardown workflows against a reachable cluster.
+3. Address the known limitations in `docs/architecture.md`, starting with
+   the TTL counting from first deploy rather than last activity.
