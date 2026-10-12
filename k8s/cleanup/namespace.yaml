@@ -1,0 +1,11 @@
+# Home of the cleanup CronJob. Deliberately NOT named preview-* and NOT
+# labelled preview.env/platform, so neither teardown nor cleanup can ever
+# select it. Pod Security "restricted" is enforced to keep the Job locked
+# down.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: previewctl-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

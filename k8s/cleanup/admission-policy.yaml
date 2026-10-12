@@ -1,0 +1,42 @@
+# Server-side guard for the cleanup ServiceAccount (requires Kubernetes
+# 1.30+, where ValidatingAdmissionPolicy is GA).
+#
+# RBAC can only say "may delete namespaces". This policy narrows it to
+# "may delete only preview namespaces": any namespace DELETE made by
+# system:serviceaccount:previewctl-system:preview-cleanup is denied unless
+# the namespace is named preview-* and labelled preview.env/platform=true.
+# Requests from every other user are not matched and are unaffected.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: preview-cleanup-delete-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["namespaces"]
+  matchConditions:
+    - name: cleanup-serviceaccount-only
+      expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:previewctl-system:preview-cleanup'
+  validations:
+    - expression: >-
+        oldObject.metadata.name.startsWith('preview-') &&
+        has(oldObject.metadata.labels) &&
+        'preview.env/platform' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['preview.env/platform'] == 'true'
+      message: >-
+        preview-cleanup may only delete preview-* namespaces labelled
+        preview.env/platform=true
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: preview-cleanup-delete-guard
+spec:
+  policyName: preview-cleanup-delete-guard
+  validationActions: ["Deny"]
