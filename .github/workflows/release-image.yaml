@@ -1,0 +1,43 @@
+name: release-image
+
+# On a version tag (v0.1.0, ...), build Dockerfile.previewctl for amd64 and
+# arm64 and push ghcr.io/<owner>/<repo>/previewctl:<version>, the image
+# k8s/cleanup/kustomization.yaml points at.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write # push to GHCR
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the package and manifest versions
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          grep -qx "version = \"$VERSION\"" pyproject.toml
+          grep -qx "    newTag: \"$VERSION\"" k8s/cleanup/kustomization.yaml
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push previewctl
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f Dockerfile.previewctl \
+            -t "ghcr.io/${{ github.repository }}/previewctl:$VERSION" \
+            --push .

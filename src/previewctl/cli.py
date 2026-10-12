@@ -83,15 +83,25 @@ def _cmd_cleanup(args) -> int:
     now = datetime.now(timezone.utc)
     envs = kube.list_preview_environments()
     expired = cleanup_mod.expired_environments(envs, ttl, now)
+    failed = 0
     for env in expired:
         if args.dry_run:
             print(f"would delete {env.namespace} (pr={env.pr})")
-        else:
-            kube.delete_namespace(env.namespace)
-            print(f"deleted {env.namespace} (pr={env.pr})")
+            continue
+        # One bad namespace (e.g. a mislabelled non-preview one, or an API
+        # error) must not stop the sweep from deleting the rest; report it
+        # and exit non-zero at the end so the CronJob's Job shows as failed.
+        try:
+            if kube.delete_namespace(env.namespace):
+                print(f"deleted {env.namespace} (pr={env.pr})")
+            else:
+                print(f"{env.namespace} already gone (pr={env.pr})")
+        except (ValueError, kube.KubectlError) as exc:
+            failed += 1
+            print(f"error: {env.namespace}: {exc}", file=sys.stderr)
     if not expired:
         print("nothing to clean up")
-    return 0
+    return 1 if failed else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

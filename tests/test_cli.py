@@ -167,10 +167,68 @@ class TestCleanupCommand:
             PreviewEnvironment("preview-a-pr-2", now - timedelta(minutes=5), pr=2),
         ]
         deleted = []
+
+        def delete(namespace):
+            deleted.append(namespace)
+            return True
+
         monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: envs)
-        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", deleted.append)
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", delete)
         assert main(["cleanup", "--ttl", "24h"]) == 0
         assert deleted == ["preview-a-pr-1"]
+
+    def test_reports_namespace_already_gone(self, monkeypatch, capsys):
+        from datetime import datetime, timedelta, timezone
+
+        from previewctl.cleanup import PreviewEnvironment
+
+        envs = [
+            PreviewEnvironment(
+                "preview-a-pr-1", datetime.now(timezone.utc) - timedelta(days=2), pr=1
+            )
+        ]
+        monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: envs)
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", lambda ns: False)
+        assert main(["cleanup", "--ttl", "24h"]) == 0
+        assert capsys.readouterr().out == "preview-a-pr-1 already gone (pr=1)\n"
+
+    def test_one_failure_does_not_stop_the_sweep(self, monkeypatch, capsys):
+        # A namespace someone labelled preview.env/platform=true without the
+        # preview- prefix (refused by kube.delete_namespace), and one that
+        # hits an API error, must not block deleting the others; the run
+        # still exits 1 so the CronJob's Job is marked failed.
+        from datetime import datetime, timedelta, timezone
+
+        from previewctl import kube
+        from previewctl.cleanup import PreviewEnvironment
+
+        old = datetime.now(timezone.utc) - timedelta(days=2)
+        envs = [
+            PreviewEnvironment("kube-system", old),
+            PreviewEnvironment("preview-a-pr-1", old, pr=1),
+            PreviewEnvironment("preview-a-pr-2", old, pr=2),
+        ]
+        deleted = []
+
+        def delete(namespace):
+            if namespace == "kube-system":
+                raise ValueError("refusing to delete non-preview namespace 'kube-system'")
+            if namespace == "preview-a-pr-1":
+                raise kube.KubectlError("Unable to connect to the server")
+            deleted.append(namespace)
+            return True
+
+        monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: envs)
+        monkeypatch.setattr("previewctl.cli.kube.delete_namespace", delete)
+        assert main(["cleanup", "--ttl", "24h"]) == 1
+        assert deleted == ["preview-a-pr-2"]
+        captured = capsys.readouterr()
+        assert captured.out == "deleted preview-a-pr-2 (pr=2)\n"
+        assert captured.err == (
+            "error: kube-system: refusing to delete non-preview namespace "
+            "'kube-system'\n"
+            "error: preview-a-pr-1: Unable to connect to the server\n"
+        )
 
     def test_nothing_to_clean(self, monkeypatch, capsys):
         monkeypatch.setattr("previewctl.cli.kube.list_preview_environments", lambda: [])

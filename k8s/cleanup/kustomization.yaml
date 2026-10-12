@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# In-cluster safety net: an hourly CronJob running
+# `previewctl cleanup --ttl 24h` with its own least-privilege identity.
+# Install with: kubectl apply -k k8s/cleanup
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - admission-policy.yaml
+  - cronjob.yaml
+
+# The CronJob refers to the image as plain `previewctl`; point it at the
+# image built from Dockerfile.previewctl. Override newName/newTag in your
+# own overlay to use a different registry or tag (see docs/setup.md).
+images:
+  - name: previewctl
+    newName: ghcr.io/tenalisriharsha/preview-env-platform/previewctl
+    newTag: "0.1.0"

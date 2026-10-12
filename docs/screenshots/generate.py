@@ -11,9 +11,25 @@ Requirements: ``pip install -e .[screenshots]`` (puts ``previewctl`` on PATH)
 and ``kubectl`` on PATH. Run from anywhere:
 
     python docs/screenshots/generate.py
+
+``--cluster`` additionally captures the live cleanup flow (11-16) against
+the cluster in the current kubectl context. It needs ``k8s/cleanup``
+installed there (see docs/local-e2e.md) and refuses to run if any preview
+namespace already exists, because it runs ``previewctl cleanup --ttl 1m``
+for real. Use a throwaway cluster:
+
+    python docs/screenshots/generate.py --cluster
+
+The cluster setup it does before capturing (creating two preview
+namespaces 75s apart, plus one ordinary namespace) is not shown in the
+images; every command that is shown ran exactly as displayed.
 """
 
+import argparse
 import html
+import os
+import tempfile
+import time
 import shutil
 import subprocess
 import sys
@@ -53,6 +69,55 @@ TERMINAL_SHOTS = [
         "07-comment-no-token.png",
         "previewctl comment (no GITHUB_TOKEN)",
         f"env -u GITHUB_TOKEN previewctl comment --repo {REPO} --pr 42 --sha a1b2c3d",
+    ),
+    ("08-cleanup-help.png", "previewctl cleanup --help", "previewctl cleanup --help"),
+    (
+        "09-cleanup-manifests.png",
+        "kubectl kustomize k8s/cleanup",
+        "kubectl kustomize k8s/cleanup | grep -E "
+        "'^kind:|schedule:|concurrencyPolicy:|image:|- 24h|runAsUser:|readOnlyRootFilesystem:'",
+    ),
+    (
+        "10-cleanup-rbac.png",
+        "cleanup ClusterRole",
+        "kubectl kustomize k8s/cleanup | awk '/^kind: ClusterRole$/{f=1} /^---/{f=0} f'",
+    ),
+]
+
+CLEANUP_SA = "system:serviceaccount:previewctl-system:preview-cleanup"
+OLD_PR, NEW_PR = 41, 42
+LABEL_SELECTOR = "-l preview.env/platform=true"
+DEMO_JOB = "cleanup-demo"
+OTHER_NAMESPACE = "not-a-preview"
+
+# Live cleanup flow, run in order against the current kubectl context
+# after cluster_setup(): PR 41's namespace is >1m old, PR 42's is fresh.
+CLUSTER_SHOTS = [
+    (
+        "11-cleanup-before.png",
+        "preview namespaces before cleanup",
+        f"kubectl get namespaces {LABEL_SELECTOR} -L preview.env/pr",
+    ),
+    ("12-cleanup-dry-run.png", "previewctl cleanup --dry-run",
+     "previewctl cleanup --ttl 1m --dry-run"),
+    ("13-cleanup.png", "previewctl cleanup", "previewctl cleanup --ttl 1m"),
+    (
+        "14-cleanup-after.png",
+        "preview namespaces after cleanup",
+        f"kubectl wait --for=delete namespace/{naming.namespace_for_pr(REPO, OLD_PR)}"
+        f" --timeout=120s && kubectl get namespaces {LABEL_SELECTOR} -L preview.env/pr",
+    ),
+    (
+        "15-cleanup-cronjob-run.png",
+        "the in-cluster CronJob, run once by hand",
+        f"kubectl -n previewctl-system create job {DEMO_JOB} --from=cronjob/preview-cleanup"
+        f" && kubectl -n previewctl-system wait --for=condition=complete job/{DEMO_JOB}"
+        f" --timeout=120s && kubectl -n previewctl-system logs job/{DEMO_JOB}",
+    ),
+    (
+        "16-cleanup-admission-denied.png",
+        "admission policy: cleanup SA cannot delete a non-preview namespace",
+        f"kubectl delete namespace {OTHER_NAMESPACE} --as={CLEANUP_SA}",
     ),
 ]
 
@@ -147,7 +212,73 @@ def screenshot(page, markup: str, path: Path) -> None:
     print(f"wrote {path.relative_to(REPO_ROOT)}")
 
 
-def main() -> int:
+def kubectl(*args: str, stdin: str | None = None) -> str:
+    proc = subprocess.run(
+        ["kubectl", *args], input=stdin, capture_output=True, text=True, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"kubectl {' '.join(args)}: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def create_preview_namespace(pr: int) -> None:
+    """Create exactly the Namespace object a rendered overlay for ``pr`` holds."""
+    with tempfile.TemporaryDirectory() as tmp:
+        content = render.render_kustomization(
+            namespace=naming.namespace_for_pr(REPO, pr),
+            base=os.path.relpath(REPO_ROOT / "k8s" / "base", tmp),
+            image="preview-app",
+            tag=f"pr-{pr}",
+            pr=pr,
+            host=render.preview_host(pr, DEFAULT_DOMAIN),
+        )
+        render.write_overlay(tmp, content, naming.namespace_for_pr(REPO, pr))
+        built = kubectl("kustomize", tmp)
+    (namespace_doc,) = [d for d in built.split("---\n") if "kind: Namespace" in d]
+    kubectl("apply", "-f", "-", stdin=namespace_doc)
+
+
+def cluster_setup() -> None:
+    if kubectl("get", "namespaces", *LABEL_SELECTOR.split(), "-o", "name").strip():
+        raise RuntimeError(
+            "preview namespaces already exist in this cluster; --cluster runs "
+            "`previewctl cleanup --ttl 1m` for real, so use a throwaway cluster"
+        )
+    kubectl("-n", "previewctl-system", "get", "cronjob", "preview-cleanup")
+    # An ordinary namespace: RBAC lets the cleanup SA delete namespaces, so
+    # shot 16 shows the admission policy refusing it at the API server.
+    kubectl("create", "namespace", OTHER_NAMESPACE)
+    create_preview_namespace(OLD_PR)
+    print(f"created PR {OLD_PR} namespace; waiting 75s so it outlives --ttl 1m")
+    time.sleep(75)
+    create_preview_namespace(NEW_PR)
+
+
+def cluster_teardown() -> None:
+    for args in (
+        ("-n", "previewctl-system", "delete", "job", DEMO_JOB, "--ignore-not-found"),
+        ("delete", "namespace", OTHER_NAMESPACE, naming.namespace_for_pr(REPO, OLD_PR),
+         naming.namespace_for_pr(REPO, NEW_PR), "--ignore-not-found", "--wait=false"),
+    ):
+        try:
+            kubectl(*args)
+        except RuntimeError as exc:
+            print(f"warning: cleanup after --cluster failed: {exc}", file=sys.stderr)
+
+
+def capture(page, shots) -> None:
+    for name, title, command in shots:
+        output, code = run(command)
+        screenshot(page, terminal_html(title, command, output, code), OUT_DIR / name)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--cluster", action="store_true",
+        help="also capture the live cleanup flow (needs a throwaway cluster)",
+    )
+    args = parser.parse_args(argv)
     for tool in ("previewctl", "kubectl"):
         if shutil.which(tool) is None:
             print(f"error: {tool} not found on PATH", file=sys.stderr)
@@ -158,12 +289,18 @@ def main() -> int:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(device_scale_factor=2)
-            for name, title, command in TERMINAL_SHOTS:
-                output, code = run(command)
-                screenshot(page, terminal_html(title, command, output, code),
-                           OUT_DIR / name)
+            capture(page, TERMINAL_SHOTS)
             screenshot(page, comment_html(), OUT_DIR / "05-pr-comment.png")
+            if args.cluster:
+                try:
+                    cluster_setup()
+                    capture(page, CLUSTER_SHOTS)
+                finally:
+                    cluster_teardown()
             browser.close()
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     finally:
         if created_overlay:
             shutil.rmtree(overlay, ignore_errors=True)

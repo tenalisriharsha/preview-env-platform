@@ -1,0 +1,43 @@
+# Identity for the cleanup CronJob.
+#
+# `previewctl cleanup` makes exactly two kinds of API call (see
+# src/previewctl/kube.py):
+#   kubectl get namespaces -l preview.env/platform=true -o json   -> list
+#   kubectl delete namespace <name> --wait=false --ignore-not-found -> get, delete
+# so the ClusterRole grants get/list/delete on namespaces and nothing else:
+# no create/update/patch/watch, no other resources, no secrets.
+#
+# RBAC cannot restrict by label or name pattern, so on its own this role
+# could delete any namespace. That boundary is enforced twice:
+#   1. previewctl lists only labelled namespaces and refuses to delete any
+#      name without the `preview-` prefix;
+#   2. admission-policy.yaml rejects, at the API server, any namespace
+#      DELETE by this ServiceAccount unless the target is `preview-*` AND
+#      labelled preview.env/platform=true.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-cleanup
+  namespace: previewctl-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-cleanup
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-cleanup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: preview-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: preview-cleanup
+    namespace: previewctl-system
