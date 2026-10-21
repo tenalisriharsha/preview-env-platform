@@ -30,7 +30,7 @@ without a cluster or network:
 | `comment.py` | template pure; client does HTTP | Comment body; GitHub REST upsert via `urllib`. |
 | `cleanup.py` | pure | TTL parsing, expiry decision, parsing `kubectl get namespaces -o json`. |
 | `kube.py` | I/O | The only module that runs `kubectl` (subprocess). |
-| `cli.py` | glue | Subcommands `name`, `render`, `comment`, `teardown`, `cleanup`. |
+| `cli.py` | glue | Subcommands `name`, `render`, `mark-deployed`, `comment`, `teardown`, `cleanup`. |
 
 ## Data flow
 
@@ -41,7 +41,8 @@ PR opened / pushed
        2. previewctl render → rendered/pr-<N>/{kustomization,namespace}.yaml
        3. kubectl apply -k rendered/pr-<N>          (creates the namespace too)
        4. kubectl rollout status deployment/app
-       5. previewctl comment → create or update the one marked PR comment
+       5. previewctl mark-deployed → kubectl annotate namespace preview.env/last-deployed=<now>
+       6. previewctl comment → create or update the one marked PR comment
 
 PR closed / merged
   └─ teardown.yaml
@@ -51,7 +52,8 @@ Every hour, in the cluster
   └─ CronJob previewctl-system/preview-cleanup
        previewctl cleanup --ttl 24h
          kubectl get namespaces -l preview.env/platform=true -o json
-         for each one older than 24h: kubectl delete namespace <name>
+         for each one whose last-deployed annotation (or, absent that,
+         creationTimestamp) is older than 24h: kubectl delete namespace <name>
 ```
 
 ### The rendered overlay
@@ -103,9 +105,11 @@ How `previewctl cleanup` decides:
 
 1. List namespaces with `preview.env/platform=true`. Namespaces without
    the label are never seen.
-2. For each, compare `now - metadata.creationTimestamp` with the TTL
-   (`30m`, `24h`, `7d`; units `s m h d`). Equal to or older than the TTL
-   means expired.
+2. For each, compare `now` with its `preview.env/last-deployed` annotation
+   — falling back to `metadata.creationTimestamp` for namespaces that
+   predate the annotation or whose deploy step never reached it — against
+   the TTL (`30m`, `24h`, `7d`; units `s m h d`). Equal to or older than the
+   TTL means expired.
 3. Delete each expired namespace. A refusal (name without `preview-`) or
    an API error is printed for that namespace and the sweep carries on
    with the rest; the command then exits 1, so the Job is marked failed
@@ -119,13 +123,14 @@ The CronJob runs at minute 0 of every hour (UTC) with
 `backoffLimit: 1` and three successful plus three failed Jobs kept for
 inspection.
 
-**What the TTL measures.** The age is taken from the namespace's
-`creationTimestamp`, which the API server sets when the namespace is first
-created and which cannot be changed afterwards. Re-applying the overlay on
-a new push does not reset it. So a PR that stays open longer than the TTL
-loses its environment at the next sweep, even if it is still being worked
-on; the next push to that PR recreates it from scratch. This is a known
-limitation (see "Known limitations" below).
+**What the TTL measures.** After every successful deploy, the preview
+workflow runs `previewctl mark-deployed`, which stamps the namespace's
+`preview.env/last-deployed` annotation with the current time
+(`k8s/rbac.yaml` grants the deployer `patch` on namespaces for this). The
+TTL is measured from that annotation, so a PR that keeps receiving pushes
+keeps its environment alive even once it has been open longer than the
+TTL. Only a namespace that has not been deployed to (and has no
+annotation yet) falls back to `metadata.creationTimestamp`.
 
 ## RBAC and the safety boundary
 
@@ -136,7 +141,8 @@ narrow as RBAC allows, and the name/label boundary is enforced elsewhere.
 
 ### `preview-deployer` (the workflows)
 
-`k8s/rbac.yaml`: get/list/watch/create/delete on namespaces, and
+`k8s/rbac.yaml`: get/list/watch/create/patch/delete on namespaces (patch
+for the `last-deployed` annotation), and
 get/list/watch/create/update/patch/delete on deployments, services and
 ingresses. No secrets, pods, RBAC, nodes or cluster configuration. The
 `preview-` prefix check in `previewctl teardown` is the only thing keeping
@@ -185,7 +191,6 @@ The boundary for the cleanup identity, from the outside in:
 
 ## Known limitations
 
-- **TTL counts from first deploy, not last activity** (see above).
 - **Namespace names ignore the repository owner.** Two repositories with
   the same name deploying into one cluster share namespaces.
 - **The deployer can delete any namespace.** Its RBAC allows it; only

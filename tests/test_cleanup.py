@@ -63,6 +63,45 @@ class TestExpiredEnvironments:
         with pytest.raises(ValueError):
             expired_environments([], timedelta(0), NOW)
 
+    def test_recent_deploy_keeps_an_old_namespace_alive(self):
+        # Created three days ago, but pushed to five minutes ago: the TTL
+        # must measure from the last deploy, not from namespace creation.
+        old_namespace = PreviewEnvironment(
+            namespace="preview-a-pr-1",
+            created_at=NOW - timedelta(days=3),
+            last_deployed_at=NOW - timedelta(minutes=5),
+        )
+        assert not old_namespace.is_expired(timedelta(hours=24), NOW)
+
+    def test_stale_deploy_on_an_old_namespace_still_expires(self):
+        stale = PreviewEnvironment(
+            namespace="preview-a-pr-1",
+            created_at=NOW - timedelta(days=3),
+            last_deployed_at=NOW - timedelta(hours=25),
+        )
+        assert stale.is_expired(timedelta(hours=24), NOW)
+
+    def test_falls_back_to_creation_time_without_a_deploy_annotation(self):
+        no_annotation = PreviewEnvironment(
+            namespace="preview-a-pr-1", created_at=NOW - timedelta(hours=25)
+        )
+        assert no_annotation.is_expired(timedelta(hours=24), NOW)
+
+    def test_only_old_namespaces_without_recent_deploys_expire(self):
+        envs = [
+            PreviewEnvironment(
+                "preview-a-pr-1",
+                created_at=NOW - timedelta(days=3),
+                last_deployed_at=NOW - timedelta(minutes=5),
+                pr=1,
+            ),
+            PreviewEnvironment(
+                "preview-a-pr-2", created_at=NOW - timedelta(hours=25), pr=2
+            ),
+        ]
+        expired = expired_environments(envs, timedelta(hours=24), NOW)
+        assert [e.namespace for e in expired] == ["preview-a-pr-2"]
+
 
 class TestParseNamespaceList:
     def test_parses_kubectl_json(self):
@@ -83,6 +122,20 @@ class TestParseNamespaceList:
         assert envs[0].pr == 12
         assert envs[1].pr is None
         assert envs[0].created_at.tzinfo is not None
+        assert envs[0].last_deployed_at is None
+
+    def test_parses_last_deployed_annotation(self):
+        raw = b"""
+        {"items": [
+          {"metadata": {
+             "name": "preview-app-pr-12",
+             "creationTimestamp": "2026-08-05T10:00:00Z",
+             "labels": {"preview.env/platform": "true", "preview.env/pr": "12"},
+             "annotations": {"preview.env/last-deployed": "2026-08-06T09:00:00Z"}}}
+        ]}
+        """
+        (env,) = parse_namespace_list(raw)
+        assert env.last_deployed_at == datetime(2026, 8, 6, 9, 0, 0, tzinfo=timezone.utc)
 
     def test_skips_items_without_creation_timestamp(self):
         raw = '{"items": [{"metadata": {"name": "pending-ns"}}]}'

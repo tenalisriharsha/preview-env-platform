@@ -149,7 +149,9 @@ docs/                 architecture, setup guide, local end-to-end guide, screens
 - **`.github/workflows/preview.yaml`** (PR opened/updated): builds and pushes
   the app image tagged `pr-<N>`, renders the per-PR overlay with
   `previewctl render`, applies it with `kubectl apply -k`, waits for the
-  rollout, then upserts the preview-URL comment with `previewctl comment`.
+  rollout, stamps the namespace's deploy time with `previewctl
+  mark-deployed`, then upserts the preview-URL comment with `previewctl
+  comment`.
 - **`.github/workflows/teardown.yaml`** (PR closed): `previewctl teardown`
   deletes the namespace. It refuses anything without the `preview-` prefix.
 - **`.github/workflows/release-image.yaml`** (`v*` tag): builds
@@ -169,7 +171,8 @@ preview domain comes from the `PREVIEW_DOMAIN` repository variable. See
   hour, `concurrencyPolicy: Forbid`, bounded history, CPU/memory limits,
   non-root with a read-only root filesystem;
 - a ServiceAccount whose ClusterRole is `get`/`list`/`delete` on
-  namespaces and nothing else;
+  namespaces and nothing else (it only reads the `last-deployed`
+  annotation; only the deployer writes it);
 - a `ValidatingAdmissionPolicy` (Kubernetes 1.30+) that rejects any
   namespace delete by that ServiceAccount unless the namespace is
   `preview-*` and labelled `preview.env/platform=true`.
@@ -185,9 +188,11 @@ The kustomization points at
 published when `v0.1.0` is tagged; to use another registry, override the
 image in an overlay ([docs/setup.md](docs/setup.md#5-install-the-cleanup-cronjob)).
 
-The TTL counts from when a preview namespace was first created, so a PR
-open longer than 24 hours loses its environment until its next push. See
-[known limitations](docs/architecture.md#known-limitations).
+The TTL counts from the namespace's `preview.env/last-deployed` annotation,
+stamped by `previewctl mark-deployed` after every deploy, so a PR that keeps
+getting pushed to keeps its preview even past 24 hours; only a namespace
+that was never deployed to falls back to its creation time. See
+[the deep-dive](docs/architecture.md#lifecycle-ttl-and-the-safety-sweep).
 
 ## License
 
