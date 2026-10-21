@@ -2,11 +2,12 @@
 
 Subcommands mirror the workflow steps:
 
-    previewctl name      print the namespace for a PR
-    previewctl render    write the per-PR Kustomize overlay
-    previewctl comment   upsert the preview URL comment on the PR
-    previewctl teardown  delete the PR's namespace
-    previewctl cleanup   delete expired preview namespaces
+    previewctl name          print the namespace for a PR
+    previewctl render        write the per-PR Kustomize overlay
+    previewctl mark-deployed record the last deploy time on the PR's namespace
+    previewctl comment       upsert the preview URL comment on the PR
+    previewctl teardown      delete the PR's namespace
+    previewctl cleanup       delete expired preview namespaces
 """
 
 import argparse
@@ -49,6 +50,13 @@ def _cmd_render(args) -> int:
     print(f"namespace={namespace}")
     print(f"host={host}")
     print(f"overlay={out}/kustomization.yaml")
+    return 0
+
+
+def _cmd_mark_deployed(args) -> int:
+    namespace = naming.namespace_for_pr(args.repo, args.pr)
+    kube.annotate_last_deployed(namespace)
+    print(f"annotated {namespace}")
     return 0
 
 
@@ -130,6 +138,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--domain", default=DEFAULT_DOMAIN, help="preview domain")
     p.add_argument("--out", help="output directory (default: rendered/pr-<N>)")
     p.set_defaults(func=_cmd_render)
+
+    p = sub.add_parser(
+        "mark-deployed", help="record the last deploy time on the PR's namespace"
+    )
+    add_pr_target(p)
+    p.set_defaults(func=_cmd_mark_deployed)
 
     p = sub.add_parser("comment", help="upsert the preview URL comment on the PR")
     add_pr_target(p)
