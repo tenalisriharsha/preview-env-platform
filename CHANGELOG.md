@@ -23,7 +23,9 @@ Actions, with an in-cluster safety net.
     (`--ttl 24h`, `--dry-run`). One failing namespace no longer stops the
     sweep; the run exits 1 if any delete failed.
 - Sample app (`app/`) and Kustomize base (`k8s/base/`).
-- Deployer RBAC (`k8s/rbac.yaml`) for the workflows.
+- Deployer RBAC (`k8s/rbac.yaml`) for the workflows, with a
+  `ValidatingAdmissionPolicy` restricting its namespace deletes to
+  `preview-*` namespaces labelled `preview.env/platform=true`.
 - Workflows: CI (tests and a build of the cleanup image), `preview.yaml`,
   `teardown.yaml`, and `release-image.yaml` (publishes the cleanup image
   on `v*` tags).
@@ -41,7 +43,7 @@ Actions, with an in-cluster safety net.
 
 See [docs/architecture.md](docs/architecture.md#known-limitations): the
 TTL counts from first deploy rather than last activity, namespace names
-ignore the repository owner, the deployer identity has no admission guard,
-fork PRs get no preview, and PR comment lookup reads one page.
+ignore the repository owner, fork PRs get no preview, and PR comment
+lookup reads one page.
 
 [0.1.0]: https://github.com/tenalisriharsha/preview-env-platform/releases/tag/v0.1.0
