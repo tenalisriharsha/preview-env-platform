@@ -8,7 +8,7 @@ from previewctl.cli import main
 class TestNameCommand:
     def test_prints_namespace(self, capsys):
         assert main(["name", "--repo", "octocat/hello-world", "--pr", "12"]) == 0
-        assert capsys.readouterr().out.strip() == "preview-cfffe7-hello-world-pr-12"
+        assert capsys.readouterr().out.strip() == "preview-hello-world-pr-12"
 
 
 class TestRenderCommand:
@@ -25,7 +25,7 @@ class TestRenderCommand:
         )
         assert rc == 0
         text = (out / "kustomization.yaml").read_text()
-        assert "namespace: preview-cfffe7-hello-world-pr-12" in text
+        assert "namespace: preview-hello-world-pr-12" in text
         assert "newTag: pr-12" in text
         printed = capsys.readouterr().out
         assert "host=pr-12.preview.example.com" in printed
@@ -100,7 +100,7 @@ class TestCommentCommand:
         assert calls[0] == ("init", "t", "a/b")
         _, pr, body = calls[1]
         assert pr == 7
-        assert "preview-86f7e4-b-pr-7" in body
+        assert "preview-b-pr-7" in body
 
 
 class TestTeardownCommand:
@@ -111,7 +111,7 @@ class TestTeardownCommand:
         )
         rc = main(["teardown", "--repo", "a/b", "--pr", "3", "--dry-run"])
         assert rc == 0
-        assert "would delete namespace preview-86f7e4-b-pr-3" in capsys.readouterr().out
+        assert "would delete namespace preview-b-pr-3" in capsys.readouterr().out
 
     def test_deletes_namespace(self, monkeypatch, capsys):
         deleted = []
@@ -122,15 +122,15 @@ class TestTeardownCommand:
 
         monkeypatch.setattr("previewctl.cli.kube.delete_namespace", delete)
         assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
-        assert deleted == ["preview-86f7e4-b-pr-3"]
-        assert capsys.readouterr().out == "deleted namespace preview-86f7e4-b-pr-3\n"
+        assert deleted == ["preview-b-pr-3"]
+        assert capsys.readouterr().out == "deleted namespace preview-b-pr-3\n"
 
     def test_missing_namespace_succeeds(self, monkeypatch, capsys):
         # A PR whose deploy never created the namespace must not fail teardown.
         monkeypatch.setattr("previewctl.cli.kube.delete_namespace", lambda ns: False)
         assert main(["teardown", "--repo", "a/b", "--pr", "3"]) == 0
         assert capsys.readouterr().out == (
-            "namespace preview-86f7e4-b-pr-3 not found, nothing to delete\n"
+            "namespace preview-b-pr-3 not found, nothing to delete\n"
         )
 
 
