@@ -32,10 +32,37 @@ class TestRepoName:
 
 class TestNamespaceForPR:
     def test_basic_shape(self):
-        assert namespace_for_pr("octocat/hello-world", 12) == "preview-hello-world-pr-12"
+        ns = namespace_for_pr("octocat/hello-world", 12)
+        assert ns.startswith("preview-")
+        assert ns.endswith("-pr-12")
+        assert "hello-world" in ns
 
     def test_sanitizes_repo_name(self):
-        assert namespace_for_pr("Octo_Cat/My.App", 3) == "preview-my-app-pr-3"
+        ns = namespace_for_pr("Octo_Cat/My.App", 3)
+        assert ns.startswith("preview-")
+        assert ns.endswith("-pr-3")
+        assert "my-app" in ns
+
+    def test_differs_for_same_repo_name_under_different_owners(self):
+        # Two repos with the same name under different owners must not
+        # collide on the same preview namespace (issue #7).
+        first = namespace_for_pr("octocat/hello-world", 12)
+        second = namespace_for_pr("other-owner/hello-world", 12)
+        assert first != second
+
+    def test_differs_for_many_owners_of_same_repo_name(self):
+        namespaces = {
+            namespace_for_pr(f"{owner}/hello-world", 12)
+            for owner in ["octocat", "other-owner", "acme-corp", "some_org"]
+        }
+        assert len(namespaces) == 4
+
+    def test_owner_fragment_survives_even_with_long_repo_and_owner_names(self):
+        ns = namespace_for_pr("a-very-long-organization-name/" + "x" * 60, 7)
+        other = namespace_for_pr("a-different-long-organization/" + "x" * 60, 7)
+        assert len(ns) <= 63
+        assert ns.endswith("-pr-7")
+        assert ns != other
 
     def test_is_valid_dns1123_label(self):
         import re
