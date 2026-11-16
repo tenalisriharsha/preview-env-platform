@@ -45,7 +45,7 @@ PR opened / pushed
 
 PR closed / merged
   └─ teardown.yaml
-       previewctl teardown → kubectl delete namespace preview-<repo>-pr-<N>
+       previewctl teardown → kubectl delete namespace preview-<owner>-<repo>-pr-<N>
 
 Every hour, in the cluster
   └─ CronJob previewctl-system/preview-cleanup
@@ -58,7 +58,7 @@ Every hour, in the cluster
 
 `previewctl render` writes an overlay that points back at `k8s/base` and:
 
-- sets `namespace: preview-<repo>-pr-<N>` on every object and includes a
+- sets `namespace: preview-<owner>-<repo>-pr-<N>` on every object and includes a
   `namespace.yaml`, so `kubectl apply -k` creates the namespace itself;
 - retags the image: `--image` must be the base name (`preview-app`) and
   `--new-name` the registry path, because kustomize only rewrites images
@@ -79,14 +79,16 @@ another.
 
 ## Naming
 
-`naming.namespace_for_pr(repo, pr)` returns `preview-<repo name>-pr-<N>`:
+`naming.namespace_for_pr(repo, pr)` returns
+`preview-<owner fragment>-<repo name>-pr-<N>`:
 
-- only the repository name is used, not the owner (`octocat/demo` →
-  `preview-demo-pr-7`);
-- the name is lowercased and anything outside `[a-z0-9-]` collapses to a
-  single `-`;
+- the owner fragment is the first 6 hex characters of the SHA-1 hash of the
+  repository owner, so two repositories with the same name under different
+  owners never collide (`octocat/demo` → `preview-cfffe7-demo-pr-7`);
+- the repo name is lowercased and anything outside `[a-z0-9-]` collapses to
+  a single `-`;
 - the result is a valid DNS-1123 label (≤ 63 characters). Long repository
-  names are truncated, never the `-pr-<N>` suffix.
+  names are truncated, never the owner fragment or the `-pr-<N>` suffix.
 
 The `preview-` prefix is load-bearing: `kube.delete_namespace` refuses any
 name without it, and the cleanup admission policy checks it too.
@@ -186,8 +188,6 @@ The boundary for the cleanup identity, from the outside in:
 ## Known limitations
 
 - **TTL counts from first deploy, not last activity** (see above).
-- **Namespace names ignore the repository owner.** Two repositories with
-  the same name deploying into one cluster share namespaces.
 - **The deployer can delete any namespace.** Its RBAC allows it; only
   previewctl's prefix check stops it. The cleanup identity has an
   admission policy for this, the deployer does not yet.

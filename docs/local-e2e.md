@@ -41,7 +41,7 @@ previewctl render \
   --out rendered/pr-7
 ```
 
-This prints the namespace (`preview-demo-pr-7`), the host
+This prints the namespace (`preview-cfffe7-demo-pr-7`), the host
 (`pr-7.preview.localtest.me`), and writes `rendered/pr-7/kustomization.yaml`
 plus the `rendered/pr-7/namespace.yaml` it references (so `kubectl apply -k`
 creates the labelled namespace itself).
@@ -60,8 +60,8 @@ Then apply for real:
 
 ```bash
 kubectl apply -k rendered/pr-7
-kubectl -n preview-demo-pr-7 rollout status deployment/app --timeout=120s
-kubectl port-forward -n preview-demo-pr-7 svc/app 8080:80
+kubectl -n preview-cfffe7-demo-pr-7 rollout status deployment/app --timeout=120s
+kubectl port-forward -n preview-cfffe7-demo-pr-7 svc/app 8080:80
 # → curl localhost:8080   "hello from a preview environment (version=dev)"
 ```
 
@@ -111,15 +111,15 @@ so bring PR 7 back (step 5 removed it), wait a minute, create PR 8, and
 use a TTL between the two ages:
 
 ```bash
-kubectl wait --for=delete namespace/preview-demo-pr-7 --timeout=120s
+kubectl wait --for=delete namespace/preview-cfffe7-demo-pr-7 --timeout=120s
 kubectl apply -k rendered/pr-7
 sleep 60
 previewctl render --repo octocat/demo --pr 8 --image preview-app --tag pr-7 \
   --base ./k8s/base --domain preview.localtest.me --out rendered/pr-8
 kubectl apply -k rendered/pr-8
 kubectl get namespaces -l preview.env/platform=true   # pr-7 is ~1m older than pr-8
-previewctl cleanup --ttl 45s --dry-run   # would delete preview-demo-pr-7 only
-previewctl cleanup --ttl 45s             # deleted preview-demo-pr-7
+previewctl cleanup --ttl 45s --dry-run   # would delete preview-cfffe7-demo-pr-7 only
+previewctl cleanup --ttl 45s             # deleted preview-cfffe7-demo-pr-7
 kubectl get namespaces -l preview.env/platform=true   # pr-8 still Active
 ```
 
