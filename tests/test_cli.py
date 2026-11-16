@@ -1,8 +1,13 @@
 import re
+import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
 
 from previewctl.cli import main
+
+REPO_K8S_BASE = Path(__file__).resolve().parent.parent / "k8s" / "base"
 
 
 class TestNameCommand:
@@ -73,6 +78,51 @@ class TestRenderCommand:
         text = (out / "kustomization.yaml").read_text()
         (match,) = re.findall(r"resources:\n  - (.+)\n", text)
         assert (out / match).resolve() == base.resolve()
+
+    def test_without_base_flag_either_fails_clearly_or_builds(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Issue #12: omitting --base must not silently write a broken overlay.
+
+        The CLI's --base default ("../../base") doesn't correspond to this
+        repo's actual Kustomize base (k8s/base), so running `render` from a
+        repo root without --base either must error out immediately with a
+        clear message, or must produce an overlay that `kubectl kustomize`
+        can actually build.
+        """
+        if shutil.which("kubectl") is None:
+            pytest.skip("kubectl not available")
+
+        repo = tmp_path / "repo"
+        shutil.copytree(REPO_K8S_BASE, repo / "k8s" / "base")
+        monkeypatch.chdir(repo)
+
+        out = repo / "rendered" / "pr-9"
+        rc = main(
+            [
+                "render",
+                "--repo", "octocat/demo",
+                "--pr", "9",
+                "--image", "preview-app",
+                "--out", str(out),
+            ]
+        )
+        captured = capsys.readouterr()
+
+        if rc != 0:
+            assert "Traceback" not in captured.err
+            assert captured.err.strip() != ""
+            return
+
+        result = subprocess.run(
+            ["kubectl", "kustomize", str(out)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            "render reported success but the overlay it wrote is broken: "
+            f"{result.stderr}"
+        )
 
 
 class TestCommentCommand:
