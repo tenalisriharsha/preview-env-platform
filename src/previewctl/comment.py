@@ -11,6 +11,8 @@ import urllib.request
 
 MARKER = "<!-- preview-env -->"
 
+REQUEST_TIMEOUT_SECONDS = 10
+
 COMMENT_TEMPLATE = """\
 {marker}
 ### Preview environment
@@ -62,7 +64,7 @@ class GitHubClient:
         req.add_header("Accept", "application/vnd.github+json")
         req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
@@ -75,6 +77,10 @@ class GitHubClient:
             ) from None
         except urllib.error.URLError as exc:
             raise GitHubError(f"cannot reach {self.base_url}: {exc.reason}") from None
+        except TimeoutError:
+            raise GitHubError(
+                f"GitHub API {method} {path} timed out after {REQUEST_TIMEOUT_SECONDS}s"
+            ) from None
         return json.loads(raw) if raw else None
 
     def list_comments(self, pr_number: int) -> list[dict]:

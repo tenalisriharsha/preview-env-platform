@@ -14,13 +14,23 @@ class KubectlError(RuntimeError):
     pass
 
 
+KUBECTL_TIMEOUT_SECONDS = 10
+
+
 def _run(args: list[str]) -> bytes:
     try:
         proc = subprocess.run(
-            ["kubectl", *args], capture_output=True, check=False
+            ["kubectl", *args],
+            capture_output=True,
+            check=False,
+            timeout=KUBECTL_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
         raise KubectlError("kubectl not found on PATH") from None
+    except subprocess.TimeoutExpired:
+        raise KubectlError(
+            f"kubectl {' '.join(args)} timed out after {KUBECTL_TIMEOUT_SECONDS}s"
+        ) from None
     if proc.returncode != 0:
         raise KubectlError(proc.stderr.decode().strip() or "kubectl failed")
     return proc.stdout
