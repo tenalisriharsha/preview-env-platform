@@ -12,24 +12,35 @@ permissions:
 jobs:
   teardown:
     runs-on: ubuntu-latest
+    env:
+      # Secrets cannot be used in a step `if:` directly; expose whether one is set.
+      HAS_CLUSTER: ${{ secrets.KUBECONFIG != '' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        if: env.HAS_CLUSTER == 'true'
         with:
           python-version: "3.12"
 
       - name: Install previewctl
+        if: env.HAS_CLUSTER == 'true'
         run: pip install -e .
 
       - name: Configure cluster access
+        if: env.HAS_CLUSTER == 'true'
         run: |
           mkdir -p "$HOME/.kube"
           printf '%s' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
       - name: Delete the preview namespace
+        if: env.HAS_CLUSTER == 'true'
         run: |
           previewctl teardown \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}"
+
+      - name: Skip when there is no cluster
+        if: env.HAS_CLUSTER != 'true'
+        run: echo "::notice::No KUBECONFIG secret is set (no cluster, or a fork pull request), so this workflow has nothing to do."
