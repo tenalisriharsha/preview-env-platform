@@ -12,7 +12,7 @@ CronJob as a backstop for anything teardown misses.
 | `previewctl` | `src/previewctl/` | Stdlib-only Python CLI. Every workflow step and the CronJob go through it. |
 | Sample app | `app/` | Tiny HTTP server (`/` and `/healthz`), the workload each preview runs. |
 | Kustomize base | `k8s/base/` | Deployment, Service and Ingress for the app. |
-| Deployer RBAC | `k8s/rbac.yaml` | `preview-deployer` ServiceAccount used by the workflows. |
+| Deployer RBAC | `k8s/rbac.yaml` | `preview-deployer` ServiceAccount used by the workflows, with its own `ValidatingAdmissionPolicy` guard. |
 | Preview workflow | `.github/workflows/preview.yaml` | PR opened/synchronized/reopened: build, render, apply, comment. |
 | Teardown workflow | `.github/workflows/teardown.yaml` | PR closed: delete the namespace. |
 | Cleanup CronJob | `k8s/cleanup/` | Hourly `previewctl cleanup --ttl 24h` inside the cluster. |
@@ -145,8 +145,11 @@ narrow as RBAC allows, and the name/label boundary is enforced elsewhere.
 for the `last-deployed` annotation), and
 get/list/watch/create/update/patch/delete on deployments, services and
 ingresses. No secrets, pods, RBAC, nodes or cluster configuration. The
-`preview-` prefix check in `previewctl teardown` is the only thing keeping
-its namespace deletes on preview namespaces.
+`preview-` prefix check in `previewctl teardown` is a client-side guard;
+`k8s/rbac.yaml` also carries a `ValidatingAdmissionPolicy` that, like the
+one below for `preview-cleanup`, denies any namespace `DELETE` by
+`system:serviceaccount:default:preview-deployer` unless the target is
+named `preview-*` **and** labelled `preview.env/platform=true`.
 
 ### `preview-cleanup` (the CronJob)
 
@@ -193,9 +196,6 @@ The boundary for the cleanup identity, from the outside in:
 
 - **Namespace names ignore the repository owner.** Two repositories with
   the same name deploying into one cluster share namespaces.
-- **The deployer can delete any namespace.** Its RBAC allows it; only
-  previewctl's prefix check stops it. The cleanup identity has an
-  admission policy for this, the deployer does not yet.
 - **Fork pull requests** get no secrets and a read-only `GITHUB_TOKEN`, so
   they get no preview.
 - **Private GHCR images** need a pull secret or a public package; nothing
