@@ -2,11 +2,12 @@
 
 Subcommands mirror the workflow steps:
 
-    previewctl name      print the namespace for a PR
-    previewctl render    write the per-PR Kustomize overlay
-    previewctl comment   upsert the preview URL comment on the PR
-    previewctl teardown  delete the PR's namespace
-    previewctl cleanup   delete expired preview namespaces
+    previewctl name          print the namespace for a PR
+    previewctl render        write the per-PR Kustomize overlay
+    previewctl mark-deployed record the last deploy time on the PR's namespace
+    previewctl comment       upsert the preview URL comment on the PR
+    previewctl teardown      delete the PR's namespace
+    previewctl cleanup       delete expired preview namespaces
 """
 
 import argparse
@@ -32,6 +33,11 @@ def _cmd_render(args) -> int:
     namespace = naming.namespace_for_pr(args.repo, args.pr)
     host = render_mod.preview_host(args.pr, args.domain)
     out = args.out or f"rendered/pr-{args.pr}"
+    if not os.path.isdir(args.base):
+        raise ValueError(
+            f"--base {args.base!r} is not a directory "
+            "(pass --base pointing at the Kustomize base, e.g. k8s/base)"
+        )
     # The base path in the overlay is interpreted by kustomize relative to
     # the overlay directory, so translate the user's cwd-relative --base
     # into a path that resolves correctly from <out>.
@@ -49,6 +55,13 @@ def _cmd_render(args) -> int:
     print(f"namespace={namespace}")
     print(f"host={host}")
     print(f"overlay={out}/kustomization.yaml")
+    return 0
+
+
+def _cmd_mark_deployed(args) -> int:
+    namespace = naming.namespace_for_pr(args.repo, args.pr)
+    kube.annotate_last_deployed(namespace)
+    print(f"annotated {namespace}")
     return 0
 
 
@@ -126,10 +139,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--new-name", help="replace the base image name, e.g. with the registry path"
     )
     p.add_argument("--tag", help="image tag (default: pr-<N>)")
-    p.add_argument("--base", default="../../base", help="path to the Kustomize base")
+    p.add_argument("--base", default="k8s/base", help="path to the Kustomize base")
     p.add_argument("--domain", default=DEFAULT_DOMAIN, help="preview domain")
     p.add_argument("--out", help="output directory (default: rendered/pr-<N>)")
     p.set_defaults(func=_cmd_render)
+
+    p = sub.add_parser(
+        "mark-deployed", help="record the last deploy time on the PR's namespace"
+    )
+    add_pr_target(p)
+    p.set_defaults(func=_cmd_mark_deployed)
 
     p = sub.add_parser("comment", help="upsert the preview URL comment on the PR")
     add_pr_target(p)

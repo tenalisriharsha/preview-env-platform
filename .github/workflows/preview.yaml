@@ -75,6 +75,13 @@ jobs:
           NAMESPACE=$(previewctl name --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}")
           kubectl -n "$NAMESPACE" rollout status deployment/app --timeout=120s
 
+      - name: Record the deploy time
+        if: env.HAS_CLUSTER == 'true'
+        run: |
+          previewctl mark-deployed \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
+
       - name: Comment the preview URL on the PR
         if: env.HAS_CLUSTER == 'true'
         env:
