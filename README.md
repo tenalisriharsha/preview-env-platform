@@ -83,7 +83,7 @@ policy, known limitations) is in [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart
 
-Locally, no cluster needed:
+Locally, no cluster needed. Requires Python 3.11+ (check with `python3 --version`):
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
