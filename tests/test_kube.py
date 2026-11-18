@@ -2,6 +2,7 @@
 
 import os
 import stat
+from datetime import datetime, timezone
 
 import pytest
 
@@ -62,3 +63,21 @@ class TestDeleteNamespace:
         # kubectl delete --ignore-not-found exits 0 and prints nothing.
         fake_kubectl(tmp_path, monkeypatch, "exit 0\n")
         assert kube.delete_namespace("preview-a-pr-1") is False
+
+
+class TestAnnotateLastDeployed:
+    def test_refuses_non_preview_namespace(self):
+        with pytest.raises(ValueError, match="refusing"):
+            kube.annotate_last_deployed("kube-system")
+
+    def test_stamps_the_given_time(self, tmp_path, monkeypatch):
+        fake_kubectl(
+            tmp_path, monkeypatch, 'echo "$@" > "$(dirname "$0")/args"\n'
+        )
+        kube.annotate_last_deployed(
+            "preview-a-pr-1", now=datetime(2026, 8, 6, 12, 0, 0, tzinfo=timezone.utc)
+        )
+        args = (tmp_path / "args").read_text()
+        assert "annotate namespace preview-a-pr-1" in args
+        assert "preview.env/last-deployed=2026-08-06T12:00:00Z" in args
+        assert "--overwrite" in args

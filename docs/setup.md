@@ -13,7 +13,7 @@ environment and are marked as such.
 
 | What | Why |
 |---|---|
-| Kubernetes **1.30+** | `k8s/cleanup/admission-policy.yaml` uses `ValidatingAdmissionPolicy` (GA in 1.30). Everything else works on older versions. |
+| Kubernetes **1.30+** | `k8s/rbac.yaml` and `k8s/cleanup/admission-policy.yaml` use `ValidatingAdmissionPolicy` (GA in 1.30). Everything else works on older versions. |
 | An ingress controller that serves Ingresses without an `ingressClassName` (i.e. a default IngressClass) | The base Ingress has no class set. Without one, previews deploy and are reachable via `kubectl port-forward`, but the PR URL will not resolve. |
 | Wildcard DNS `*.<your preview domain>` pointing at that ingress controller | Each PR gets the host `pr-<N>.<domain>`. |
 | An API server reachable from GitHub-hosted runners | The workflows run `kubectl` from `ubuntu-latest`. A laptop cluster (kind, k3s on `127.0.0.1`) is not reachable from there. |
@@ -24,7 +24,9 @@ environment and are marked as such.
 
 The workflows authenticate as the `preview-deployer` ServiceAccount, whose
 ClusterRole covers namespaces, deployments, services and ingresses and
-nothing else (no secrets, RBAC or nodes):
+nothing else (no secrets, RBAC or nodes). The same file also installs a
+`ValidatingAdmissionPolicy` that restricts that ServiceAccount's namespace
+deletes to `preview-*` namespaces labelled `preview.env/platform=true`:
 
 ```bash
 kubectl apply -f k8s/rbac.yaml

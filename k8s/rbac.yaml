@@ -20,10 +20,11 @@ kind: ClusterRole
 metadata:
   name: preview-deployer
 rules:
-  # Namespace lifecycle: create on deploy, delete on teardown/cleanup.
+  # Namespace lifecycle: create on deploy, delete on teardown/cleanup,
+  # patch to stamp the last-deployed annotation on every push.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Workload resources inside preview namespaces (kubectl apply -k).
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -47,3 +48,47 @@ subjects:
   - kind: ServiceAccount
     name: preview-deployer
     namespace: default
+---
+# Server-side guard for the deployer ServiceAccount (requires Kubernetes
+# 1.30+, where ValidatingAdmissionPolicy is GA), mirroring the one already
+# in place for preview-cleanup (k8s/cleanup/admission-policy.yaml).
+#
+# The ClusterRole above grants delete on *any* namespace because RBAC
+# cannot pattern-match resource names. This narrows it at the API server:
+# any namespace DELETE made by system:serviceaccount:default:preview-deployer
+# is denied unless the namespace is named preview-* and labelled
+# preview.env/platform=true. Requests from every other user are unaffected.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: preview-deployer-delete-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["namespaces"]
+  matchConditions:
+    - name: deployer-serviceaccount-only
+      expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:default:preview-deployer'
+  validations:
+    - expression: >-
+        oldObject.metadata.name.startsWith('preview-') &&
+        has(oldObject.metadata.labels) &&
+        'preview.env/platform' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['preview.env/platform'] == 'true'
+      message: >-
+        preview-deployer may only delete preview-* namespaces labelled
+        preview.env/platform=true
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: preview-deployer-delete-guard
+spec:
+  policyName: preview-deployer-delete-guard
+  validationActions: ["Deny"]

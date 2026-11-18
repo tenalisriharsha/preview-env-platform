@@ -125,6 +125,19 @@ class TestRenderCommand:
         )
 
 
+class TestMarkDeployedCommand:
+    def test_annotates_the_pr_namespace(self, monkeypatch, capsys):
+        calls = []
+        monkeypatch.setattr(
+            "previewctl.cli.kube.annotate_last_deployed",
+            lambda ns: calls.append(ns),
+        )
+        rc = main(["mark-deployed", "--repo", "a/b", "--pr", "3"])
+        assert rc == 0
+        assert calls == ["preview-b-pr-3"]
+        assert capsys.readouterr().out == "annotated preview-b-pr-3\n"
+
+
 class TestCommentCommand:
     def test_fails_without_token(self, monkeypatch, capsys):
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
