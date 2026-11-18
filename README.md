@@ -88,7 +88,7 @@ Locally, no cluster needed:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .[dev]
-previewctl name --repo octocat/demo --pr 7          # preview-demo-pr-7
+previewctl name --repo octocat/demo --pr 7          # preview-cfffe7-demo-pr-7
 previewctl render --repo octocat/demo --pr 7 --image preview-app \
   --base ./k8s/base --out rendered/pr-7
 kubectl kustomize rendered/pr-7                      # the manifests a PR gets
