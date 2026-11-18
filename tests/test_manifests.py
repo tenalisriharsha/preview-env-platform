@@ -150,6 +150,28 @@ class TestWorkflows:
         assert f"--image {base_image} " in workflow
         assert '--new-name "$IMAGE"' in workflow
 
+    def test_cluster_steps_are_skipped_when_no_kubeconfig_secret_is_set(self):
+        # Without a cluster (no KUBECONFIG secret, or a fork pull request) the
+        # workflows used to fail on `kubectl apply` against localhost:8080 and
+        # leave every PR red. Every step after checkout must be gated on the
+        # secret, and a notice step must say why nothing ran.
+        for name in ("preview.yaml", "teardown.yaml"):
+            workflow = _read(self.WORKFLOWS / name)
+            assert "HAS_CLUSTER: ${{ secrets.KUBECONFIG != '' }}" in workflow, name
+            steps = re.split(r"(?m)^(?=      - )", workflow.split("    steps:\n", 1)[1])
+            steps = [s for s in steps if s.startswith("      - ")]
+            checkout, rest = steps[0], steps[1:]
+            assert "actions/checkout" in checkout, name
+            assert "if:" not in checkout, f"{name}: checkout must always run"
+            notice = [s for s in rest if "env.HAS_CLUSTER != 'true'" in s]
+            assert len(notice) == 1, f"{name}: expected one skip-notice step"
+            for step in rest:
+                if step in notice:
+                    continue
+                assert "if: env.HAS_CLUSTER == 'true'" in step, (
+                    f"{name}: step is not gated on the cluster: {step.splitlines()[0]}"
+                )
+
     def test_teardown_workflow(self):
         workflow = _read(self.WORKFLOWS / "teardown.yaml")
         assert "types: [closed]" in workflow
