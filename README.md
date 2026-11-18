@@ -158,7 +158,9 @@ docs/                 architecture, setup guide, local end-to-end guide, screens
   uses.
 
 The preview and teardown workflows expect a `KUBECONFIG` secret; the
-preview domain comes from the `PREVIEW_DOMAIN` repository variable. See
+preview domain comes from the `PREVIEW_DOMAIN` repository variable. Without
+the secret (no cluster yet, or a pull request from a fork) both workflows skip
+their cluster steps and pass with a notice instead of failing. See
 [docs/setup.md](docs/setup.md).
 
 ## The cleanup CronJob
