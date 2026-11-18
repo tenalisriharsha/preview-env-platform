@@ -45,4 +45,8 @@ def namespace_for_pr(repo: str, pr_number: int) -> str:
     budget = MAX_LABEL_LENGTH - len("preview") - 1 - len(suffix)
     if budget < 1:
         raise ValueError(f"pr_number {pr_number} is too large to fit a label")
-    return f"preview-{name[:budget].rstrip('-')}{suffix}"
+    if len(name) > budget:
+        head_len = (budget + 1) // 2
+        tail_len = budget - head_len
+        name = name[:head_len] + name[len(name) - tail_len :]
+    return f"preview-{name.rstrip('-')}{suffix}"

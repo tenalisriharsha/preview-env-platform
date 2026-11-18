@@ -55,6 +55,22 @@ class TestNamespaceForPR:
         assert len(ns) <= 63
         assert "-pr-7" in ns
 
+    def test_long_names_sharing_a_prefix_do_not_collide(self):
+        # Two different repo names that share the same first 49 characters
+        # but diverge near the end. Docstring promises middle-truncation
+        # (prefix + suffix of the name kept), which would distinguish them;
+        # end-truncation keeps only the shared prefix and collapses both
+        # into the same namespace.
+        repo_a = "org/" + "x" * 49 + "-service-one"
+        repo_b = "org/" + "x" * 49 + "-service-two"
+        ns_a = namespace_for_pr(repo_a, 1)
+        ns_b = namespace_for_pr(repo_b, 1)
+        assert ns_a != ns_b
+        assert ns_a.endswith("-pr-1")
+        assert ns_b.endswith("-pr-1")
+        assert len(ns_a) <= 63
+        assert len(ns_b) <= 63
+
     def test_rejects_zero_and_negative_pr(self):
         with pytest.raises(ValueError):
             namespace_for_pr("a/b", 0)
