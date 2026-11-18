@@ -1,7 +1,9 @@
 """Tests for the kubectl wrapper, using a fake ``kubectl`` on PATH."""
 
 import os
+import signal
 import stat
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -42,6 +44,56 @@ class TestRun:
         assert env.namespace == "preview-a-pr-1" and env.pr == 1
         args = (tmp_path / "args").read_text()
         assert "-l preview.env/platform=true" in args
+
+
+class TestRunTimeout:
+    def test_hanging_kubectl_does_not_block_forever(self, tmp_path, monkeypatch):
+        # A hung kubectl (network partition, unresponsive API server) must
+        # not be able to block the caller indefinitely. The fake process
+        # below hangs essentially forever (sleep 999999s) rather than
+        # exiting on its own, so a passing test proves _run enforces its
+        # own timeout rather than happening to outrun a fixed sleep.
+        fake_kubectl(
+            tmp_path,
+            monkeypatch,
+            'echo $$ > "$(dirname "$0")/pid"\nexec sleep 999999\n',
+        )
+
+        result = {}
+
+        def call():
+            try:
+                kube.list_preview_environments()
+                result["status"] = "ok"
+            except kube.KubectlError:
+                result["status"] = "error"
+            except Exception as exc:  # noqa: BLE001 - diagnostic only, see assert below
+                # Anything other than KubectlError means a raw timeout
+                # exception (e.g. subprocess.TimeoutExpired) leaked out
+                # instead of being translated.
+                result["status"] = "crashed"
+                result["exc"] = repr(exc)
+
+        thread = threading.Thread(target=call, daemon=True)
+        thread.start()
+        thread.join(timeout=15)
+        hung = thread.is_alive()
+
+        pid_file = tmp_path / "pid"
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), signal.SIGKILL)
+            except (ProcessLookupError, ValueError):
+                pass
+
+        assert not hung, (
+            "kube._run passed no timeout to subprocess.run, so it blocked "
+            "indefinitely on a hanging kubectl instead of failing fast"
+        )
+        assert result.get("status") == "error", (
+            f"expected a KubectlError, got {result!r} instead — a timeout "
+            "must be translated into KubectlError, not left to leak out raw"
+        )
 
 
 class TestDeleteNamespace:

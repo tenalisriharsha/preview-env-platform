@@ -1,4 +1,5 @@
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -199,3 +200,64 @@ class TestRequestErrors:
         client = GitHubClient("t", "a/b", base_url="http://127.0.0.1:9")
         with pytest.raises(GitHubError, match="cannot reach http://127.0.0.1:9"):
             client.list_comments(1)
+
+
+class TestRequestTimeout:
+    def test_unresponsive_server_does_not_block_forever(self):
+        # A server that accepts the connection but never writes a response
+        # (network partition, GitHub outage) must not be able to block the
+        # caller indefinitely. Nothing here ever closes the connection on
+        # its own, so a passing test proves _request enforces its own
+        # timeout rather than happening to outrun some fixed delay.
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        accepted = []
+
+        def accept_and_hang():
+            try:
+                conn, _ = server.accept()
+                accepted.append(conn)
+            except OSError:
+                pass
+
+        accept_thread = threading.Thread(target=accept_and_hang, daemon=True)
+        accept_thread.start()
+
+        client = GitHubClient("t", "a/b", base_url=f"http://127.0.0.1:{port}")
+        result = {}
+
+        def call():
+            try:
+                client.list_comments(1)
+                result["status"] = "ok"
+            except GitHubError:
+                result["status"] = "error"
+            except Exception as exc:  # noqa: BLE001 - diagnostic only, see assert below
+                # Anything other than GitHubError means a raw timeout
+                # exception leaked out instead of being translated, or (if
+                # the thread is still "hung" when the main thread closes the
+                # socket below) a connection-reset artifact of that cleanup.
+                result["status"] = "crashed"
+                result["exc"] = repr(exc)
+
+        call_thread = threading.Thread(target=call, daemon=True)
+        call_thread.start()
+        call_thread.join(timeout=15)
+        hung = call_thread.is_alive()
+
+        server.close()
+        for conn in accepted:
+            conn.close()
+
+        assert not hung, (
+            "GitHubClient._request passed no timeout to urlopen, so it "
+            "blocked indefinitely on an unresponsive server instead of "
+            "failing fast"
+        )
+        assert result.get("status") == "error", (
+            f"expected a GitHubError, got {result!r} instead — a timeout "
+            "must be translated into GitHubError, not left to leak out raw"
+        )
