@@ -1,9 +1,11 @@
 """Structural tests for the k8s manifests and GitHub Actions workflows.
 
-These are stdlib-only checks (no PyYAML dependency): they verify that the
-Kustomize base is internally consistent, that the assumptions made by
-``previewctl render`` hold (an Ingress to patch, an image name to retag),
-and that the workflows wire the right previewctl commands together.
+Most of these are stdlib-only checks: they verify that the Kustomize base
+is internally consistent, that the assumptions made by ``previewctl
+render`` hold (an Ingress to patch, an image name to retag), and that the
+workflows wire the right previewctl commands together. A few manifest
+fields (securityContext) are checked structurally via PyYAML, as in
+test_cleanup_manifests.py, since regexing nested YAML is fragile.
 """
 
 import os
@@ -13,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASE_DIR = REPO_ROOT / "k8s" / "base"
@@ -22,6 +25,10 @@ from previewctl import render as render_mod  # noqa: E402
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _deployment() -> dict:
+    return yaml.safe_load(_read(BASE_DIR / "deployment.yaml"))
 
 
 class TestKustomizeBase:
@@ -50,6 +57,26 @@ class TestKustomizeBase:
         port = re.search(r"containerPort:\s*(\d+)", deployment).group(1)
         assert f"targetPort: {port}" in service
         assert "name: app" in service and "name: app" in ingress
+
+
+class TestDeploymentSecurity:
+    """The preview app Deployment is the workload exposed on a public
+    Ingress host, so it must be at least as locked down as the cleanup
+    CronJob (see tests/test_cleanup_manifests.py::TestCronJob)."""
+
+    def test_pod_security_context_is_non_root(self):
+        pod = _deployment()["spec"]["template"]["spec"]
+        sc = pod["securityContext"]
+        assert sc["runAsNonRoot"] is True
+        assert sc["runAsUser"] != 0
+        assert sc["seccompProfile"] == {"type": "RuntimeDefault"}
+
+    def test_container_security_context_is_locked_down(self):
+        container = _deployment()["spec"]["template"]["spec"]["containers"][0]
+        sc = container["securityContext"]
+        assert sc["allowPrivilegeEscalation"] is False
+        assert sc["readOnlyRootFilesystem"] is True
+        assert sc["capabilities"] == {"drop": ["ALL"]}
 
 
 @pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl not installed")
