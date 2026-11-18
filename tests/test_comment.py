@@ -2,6 +2,7 @@ import json
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -104,6 +105,77 @@ def github_stub():
     yield Handler, f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
     server.server_close()
+
+
+@pytest.fixture
+def paginated_github_stub():
+    """A local HTTP server that spreads comments over two pages.
+
+    Page 1 holds 30 "noise" comments with no marker and a ``Link`` header
+    pointing at page 2. Page 2 holds the bot's marker comment. A client
+    that reads only the first page (the documented bug) will never see it.
+    """
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            query = parse_qs(urlsplit(self.path).query)
+            page = query.get("page", ["1"])[0]
+            if page == "1":
+                comments = [{"id": i, "body": "a human comment"} for i in range(1, 31)]
+                body = json.dumps(comments).encode()
+                next_url = (
+                    f"http://127.0.0.1:{self.server.server_port}"
+                    "/repos/a/b/issues/1/comments?page=2"
+                )
+                link_header = f'<{next_url}>; rel="next", <{next_url}>; rel="last"'
+            else:
+                comments = [{"id": 999, "body": f"{MARKER}\nstale preview info"}]
+                body = json.dumps(comments).encode()
+                link_header = None
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Type", "application/json")
+            if link_header:
+                self.send_header("Link", link_header)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            self._write_json({"id": 1000})
+
+        def do_PATCH(self):
+            self._write_json({"id": 999})
+
+        def _write_json(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+class TestListCommentsPagination:
+    def test_list_comments_includes_second_page(self, paginated_github_stub):
+        client = GitHubClient("t", "a/b", base_url=paginated_github_stub)
+        comments = client.list_comments(1)
+        assert len(comments) == 31
+        assert any(c["id"] == 999 for c in comments)
+
+    def test_upsert_updates_marker_comment_found_on_page_two(self, paginated_github_stub):
+        client = GitHubClient("t", "a/b", base_url=paginated_github_stub)
+        result = client.upsert_comment(1, f"{MARKER}\nfresh")
+        assert result == "updated"
 
 
 class TestRequestErrors:
