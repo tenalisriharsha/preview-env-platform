@@ -33,6 +33,11 @@ def _cmd_render(args) -> int:
     namespace = naming.namespace_for_pr(args.repo, args.pr)
     host = render_mod.preview_host(args.pr, args.domain)
     out = args.out or f"rendered/pr-{args.pr}"
+    if not os.path.isdir(args.base):
+        raise ValueError(
+            f"--base {args.base!r} is not a directory "
+            "(pass --base pointing at the Kustomize base, e.g. k8s/base)"
+        )
     # The base path in the overlay is interpreted by kustomize relative to
     # the overlay directory, so translate the user's cwd-relative --base
     # into a path that resolves correctly from <out>.
@@ -134,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--new-name", help="replace the base image name, e.g. with the registry path"
     )
     p.add_argument("--tag", help="image tag (default: pr-<N>)")
-    p.add_argument("--base", default="../../base", help="path to the Kustomize base")
+    p.add_argument("--base", default="k8s/base", help="path to the Kustomize base")
     p.add_argument("--domain", default=DEFAULT_DOMAIN, help="preview domain")
     p.add_argument("--out", help="output directory (default: rendered/pr-<N>)")
     p.set_defaults(func=_cmd_render)
