@@ -6,8 +6,11 @@ a new one only when none exists.
 """
 
 import json
+import re
 import urllib.error
 import urllib.request
+
+_LINK_RE = re.compile(r'<([^>]+)>;\s*rel="([^"]+)"')
 
 MARKER = "<!-- preview-env -->"
 
@@ -53,6 +56,7 @@ class GitHubClient:
         self._token = token
         self.repo = repo
         self.base_url = base_url.rstrip("/")
+        self._last_response_headers = None
 
     def _request(self, method: str, path: str, payload: dict | None = None):
         url = f"{self.base_url}{path}"
@@ -64,6 +68,7 @@ class GitHubClient:
         try:
             with urllib.request.urlopen(req) as resp:
                 raw = resp.read()
+                self._last_response_headers = resp.headers
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
             try:
@@ -78,7 +83,22 @@ class GitHubClient:
         return json.loads(raw) if raw else None
 
     def list_comments(self, pr_number: int) -> list[dict]:
-        return self._request("GET", f"/repos/{self.repo}/issues/{pr_number}/comments")
+        path = f"/repos/{self.repo}/issues/{pr_number}/comments"
+        comments = []
+        while path:
+            comments.extend(self._request("GET", path))
+            path = self._next_page_path()
+        return comments
+
+    def _next_page_path(self) -> str | None:
+        """Return the path of the next page per the last response's ``Link`` header."""
+        link = self._last_response_headers.get("Link") if self._last_response_headers else None
+        if not link:
+            return None
+        for url, rel in _LINK_RE.findall(link):
+            if rel == "next":
+                return url[len(self.base_url) :] if url.startswith(self.base_url) else url
+        return None
 
     def create_comment(self, pr_number: int, body: str) -> dict:
         return self._request(
